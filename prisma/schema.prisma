@@ -168,10 +168,11 @@ model DecisionRecord {
   status             DecisionRecordStatus  @default(OPEN)
   decisionSummary    String               @default("")
   goal               String               @default("")
-  recommendedOption  String               @default("")
-  confidence         Float                @default(0)
+  recommendedOption  String?
+  confidence         Float?
   risks              String[]             @default([])
   assumptions        String[]             @default([])
+  unresolvedQuestions String[]            @default([])
   evidenceRefs       String[]             @default([])
   humanInputs        String[]             @default([])
   escalationReason   String?

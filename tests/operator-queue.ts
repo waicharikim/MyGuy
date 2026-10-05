@@ -68,6 +68,7 @@ async function main() {
         confidence: 0.72,
         risks: ["Unconfirmed start date"],
         assumptions: ["The offer remains available."],
+        unresolvedQuestions: ["When does the role begin?"],
         evidenceRefs: ["https://example.test/job-offer"],
         humanInputs: ["User prefers stable income."],
       },
@@ -136,6 +137,16 @@ async function main() {
 
     const controller = new HumanController();
 
+    const dashboardHtml = controller.dashboard();
+    assert(
+      dashboardHtml.includes("Shauri Operator Desk") &&
+        dashboardHtml.includes('request("metrics")') &&
+        dashboardHtml.includes("sessionStorage") &&
+        dashboardHtml.includes("textContent") &&
+        dashboardHtml.includes("Open questions:"),
+      "Operator dashboard should render and use the authenticated APIs.",
+    );
+
     process.env.INTERNAL_OPERATOR_TOKEN = "operator-queue-test-token";
     let unauthorized = false;
     try {
@@ -159,7 +170,8 @@ async function main() {
     assert(humanQuery.thread.open.includes("The employer has not confirmed the start date."), "Outstanding questions should be included.");
     assert(humanQuery.thread.user.phone === user.phone, "Operator should receive the user's contact phone.");
     assert(humanQuery.thread.user.profile?.summary.includes("stable income"), "User profile summary should be included.");
-    assert(humanQuery.thread.decisionRecords[0].recommendedOption.includes("Wait for confirmation"), "Decision recommendation should be included.");
+    assert(humanQuery.thread.decisionRecords[0].recommendedOption?.includes("Wait for confirmation") === true, "Decision recommendation should be included.");
+    assert(humanQuery.thread.decisionRecords[0].unresolvedQuestions.includes("When does the role begin?"), "Decision open questions should be included.");
     assert(humanQuery.thread.groundingEvidence[0].sourceUrl === "https://example.test/job-offer", "Grounding provenance should be included.");
 
     const escalation = queue.escalations[0];

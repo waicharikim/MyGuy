@@ -55,6 +55,7 @@ async function main() {
             confidence: 0.55,
             risks: ["salary uncertainty", "role mismatch"],
             assumptions: ["the user wants stable work"],
+            unresolvedQuestions: ["What is the confirmed salary?"],
             evidenceRefs: ["https://example.com/reasoning"],
             humanInputs: ["User-provided answer: salary target is 60k"],
         });
@@ -72,13 +73,14 @@ async function main() {
             confidence: 0.82,
             risks: ["salary uncertainty", "role mismatch"],
             assumptions: ["the user wants stable work"],
+            unresolvedQuestions: ["What is the confirmed salary?"],
             evidenceRefs: ["https://example.com/reasoning"],
             humanInputs: ["User-provided answer: salary target is 60k"],
             escalationReason: null,
         });
         assert(updated.status === client_1.DecisionRecordStatus.AWAITING_HUMAN, "Decision record should update status to AWAITING_HUMAN.");
         assert(updated.confidence === 0.82, "Decision confidence should be updated.");
-        assert(updated.recommendedOption.includes("salary"), "Recommended option should persist with the updated decision context.");
+        assert(updated.recommendedOption?.includes("salary") === true, "Recommended option should persist with the updated decision context.");
         const recordCount = await prisma_1.prisma.decisionRecord.count({
             where: { threadId: thread.id },
         });
@@ -88,6 +90,7 @@ async function main() {
         });
         assert(stored.decisionSummary.includes("salary clarification"), "The stored decision summary should reflect the latest state.");
         assert(stored.risks.includes("salary uncertainty"), "Risk metadata should be retained.");
+        assert(stored.unresolvedQuestions.includes("What is the confirmed salary?"), "Unanswered material questions should be retained separately from assumptions.");
         const reopened = await (0, decision_record_1.updateDecisionRecordStatus)(thread.id, client_1.DecisionRecordStatus.OPEN);
         assert(reopened.status === client_1.DecisionRecordStatus.OPEN, "A matter awaiting more user input must remain OPEN.");
         const resolved = await (0, decision_record_1.updateDecisionRecordStatus)(thread.id, client_1.DecisionRecordStatus.RESOLVED);

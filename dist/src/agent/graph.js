@@ -64,6 +64,7 @@ const model_1 = require("./model");
 const prisma_1 = require("../infrastructure/prisma");
 const thread_1 = require("../domain/thread");
 const decision_messaging_1 = require("./decision-messaging");
+const decision_contract_1 = require("./decision-contract");
 const create_task_1 = require("../tools/create_task");
 const schedule_followup_1 = require("../tools/schedule_followup");
 const human_query_1 = require("./human-query");
@@ -792,6 +793,11 @@ Write for the user in plain language (not an operator checklist).
 Return ONLY JSON:
 {
   "nextAction": "2–4 short sentences the user should see",
+  "recommendedOption": "one option to consider, or null if information is insufficient",
+  "confidence": 0.0,
+  "assumptions": ["explicit assumptions behind the recommendation"],
+  "unresolvedRisks": ["material unresolved risks"],
+  "unresolvedQuestions": ["material facts or questions that remain unresolved"],
   "escalate": false,
   "resolved": false,
   "humanQuery": false,
@@ -800,6 +806,11 @@ Return ONLY JSON:
 
 Rules:
 
+- confidence is your estimate of how well-supported the recommendation is, from 0 to 1; use null with a null recommendation when you cannot responsibly recommend an option.
+- Never invent evidence, and lower confidence when facts are missing, disputed, or weakly sourced.
+- A resolved decision requires a recommendation; do not mark unresolved choices as resolved.
+- Include only material assumptions, unresolved risks, and unanswered material questions.
+- Keep unanswered facts in unresolvedQuestions; do not present them as assumptions.
 - Lines in known that start with "Human-provided evidence:" are already verified.
 - Do NOT ask to re-verify them.
 - Prefer one concrete next step.
@@ -823,13 +834,7 @@ Rules:
             }),
         },
     ]);
-    const parsed = json(res.content, {
-        nextAction: String(res.content),
-        escalate: false,
-        resolved: false,
-        humanQuery: false,
-        decisionSummary: "",
-    });
+    const parsed = (0, decision_contract_1.parseDecisionCloseOutput)(res.content);
     const decisionStatus = parsed.escalate
         ? client_1.DecisionRecordStatus.ESCALATED
         : parsed.humanQuery
@@ -842,12 +847,19 @@ Rules:
         threadId: state.threadId,
         matter: state.known.join("; ") || state.rawInput,
         status: decisionStatus,
-        decisionSummary: parsed.decisionSummary || parsed.nextAction || state.rawInput,
+        decisionSummary: parsed.decisionSummary,
         goal: state.rawInput,
-        recommendedOption: parsed.nextAction,
-        confidence: 0.7,
-        risks: state.skepticRisks,
-        assumptions: state.open,
+        recommendedOption: parsed.recommendedOption,
+        confidence: parsed.confidence,
+        risks: Array.from(new Set([
+            ...state.skepticRisks,
+            ...parsed.unresolvedRisks,
+        ])),
+        assumptions: parsed.assumptions,
+        unresolvedQuestions: Array.from(new Set([
+            ...state.open,
+            ...parsed.unresolvedQuestions,
+        ])),
         evidenceRefs: state.groundedFacts,
         humanInputs,
         escalationReason: parsed.escalate
@@ -856,7 +868,7 @@ Rules:
     });
     if (parsed.humanQuery) {
         const need = {
-            question: parsed.nextAction,
+            question: (0, decision_contract_1.formatDecisionRecommendation)(parsed),
             fact: parsed.nextAction,
             factType: "HUMAN_VERIFICATION",
             preferredSource: "OPERATOR",
@@ -919,7 +931,7 @@ Rules:
         const next = {
             ...state,
             status: "ESCALATED",
-            nextAction: parsed.nextAction,
+            nextAction: (0, decision_contract_1.formatDecisionRecommendation)(parsed),
             awaitingHuman: false,
             awaitingSource: "NONE",
             resumePass: "close",
@@ -951,7 +963,7 @@ Rules:
             awaitingReply: true,
             awaitingHuman: false,
             awaitingSource: "USER",
-            nextAction: `${parsed.nextAction}\n\nThis sounds settled. Should I close this matter? (yes/no)`,
+            nextAction: `${(0, decision_contract_1.formatDecisionRecommendation)(parsed)}\n\nThis sounds settled. Should I close this matter? (yes/no)`,
         };
         await checkpoint({
             ...state,
@@ -962,7 +974,7 @@ Rules:
     await (0, create_task_1.createTask)({
         userId: state.userId,
         threadId: state.threadId,
-        description: parsed.nextAction,
+        description: (0, decision_contract_1.formatDecisionRecommendation)(parsed),
         idempotencyKey: `close:${state.threadId}:${parsed.nextAction}`,
     });
     await (0, schedule_followup_1.scheduleFollowup)({
@@ -973,7 +985,7 @@ Rules:
                 60 *
                 60 *
                 1000),
-        promptContext: parsed.nextAction,
+        promptContext: (0, decision_contract_1.formatDecisionRecommendation)(parsed),
     });
     await prisma_1.prisma.thread.update({
         where: {
@@ -1095,7 +1107,7 @@ async function runShauriGraph(input) {
     if (thread.outcomeRequestedAt) {
         await (0, decision_outcome_1.captureRequestedDecisionOutcome)(thread.id, input.rawInput);
     }
-    await (0, decision_record_1.upsertDecisionRecord)({
+    await (0, decision_record_1.ensureDecisionRecord)({
         userId: input.userId,
         threadId: input.threadId,
         matter: thread.decisionSummary ||
@@ -1106,18 +1118,7 @@ async function runShauriGraph(input) {
             : thread.awaitingHuman
                 ? client_1.DecisionRecordStatus.AWAITING_HUMAN
                 : client_1.DecisionRecordStatus.OPEN,
-        decisionSummary: thread.decisionSummary || "",
         goal: input.rawInput,
-        recommendedOption: thread.decisionSummary || "",
-        confidence: 0,
-        risks: thread.leaning ? [thread.leaning] : [],
-        assumptions: thread.open,
-        evidenceRefs: [],
-        humanInputs: thread.known.filter((entry) => String(entry).includes("User-provided answer:") ||
-            String(entry).includes("Human-provided evidence:")),
-        escalationReason: thread.status === "ESCALATED"
-            ? thread.decisionSummary || null
-            : null,
     });
     // ──────────────────────────────────────────────────────────────────────────
     // Explicit close confirmation

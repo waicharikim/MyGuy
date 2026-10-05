@@ -19,12 +19,16 @@ const human_query_1 = require("./agent/human-query");
 const operator_queue_1 = require("./agent/operator-queue");
 const decision_outcome_1 = require("./agent/decision-outcome");
 const prisma_1 = require("./infrastructure/prisma");
+const operator_dashboard_1 = require("./operator-dashboard");
 let HumanController = class HumanController {
     auth(headers) {
         if (!process.env.INTERNAL_OPERATOR_TOKEN ||
             headers["x-operator-token"] !== process.env.INTERNAL_OPERATOR_TOKEN) {
             throw new common_1.UnauthorizedException();
         }
+    }
+    dashboard() {
+        return operator_dashboard_1.operatorDashboardHtml;
     }
     async queue(headers) {
         this.auth(headers);
@@ -79,6 +83,14 @@ let HumanController = class HumanController {
     }
 };
 exports.HumanController = HumanController;
+__decorate([
+    (0, common_1.Get)("dashboard"),
+    (0, common_1.Header)("Content-Type", "text/html; charset=utf-8"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], HumanController.prototype, "dashboard", null);
 __decorate([
     (0, common_1.Get)("queue"),
     __param(0, (0, common_1.Headers)()),

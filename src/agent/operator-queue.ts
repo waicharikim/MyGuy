@@ -30,6 +30,7 @@ const operatorThreadSelect = {
       confidence: true,
       risks: true,
       assumptions: true,
+      unresolvedQuestions: true,
       evidenceRefs: true,
       humanInputs: true,
       escalationReason: true,

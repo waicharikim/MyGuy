@@ -69,6 +69,7 @@ async function main() {
       confidence: 0.55,
       risks: ["salary uncertainty", "role mismatch"],
       assumptions: ["the user wants stable work"],
+      unresolvedQuestions: ["What is the confirmed salary?"],
       evidenceRefs: ["https://example.com/reasoning"],
       humanInputs: ["User-provided answer: salary target is 60k"],
     });
@@ -99,6 +100,7 @@ async function main() {
       confidence: 0.82,
       risks: ["salary uncertainty", "role mismatch"],
       assumptions: ["the user wants stable work"],
+      unresolvedQuestions: ["What is the confirmed salary?"],
       evidenceRefs: ["https://example.com/reasoning"],
       humanInputs: ["User-provided answer: salary target is 60k"],
       escalationReason: null,
@@ -115,7 +117,7 @@ async function main() {
     );
 
     assert(
-      updated.recommendedOption.includes("salary"),
+      updated.recommendedOption?.includes("salary") === true,
       "Recommended option should persist with the updated decision context.",
     );
 
@@ -140,6 +142,10 @@ async function main() {
     assert(
       stored.risks.includes("salary uncertainty"),
       "Risk metadata should be retained.",
+    );
+    assert(
+      stored.unresolvedQuestions.includes("What is the confirmed salary?"),
+      "Unanswered material questions should be retained separately from assumptions.",
     );
 
     const reopened = await updateDecisionRecordStatus(

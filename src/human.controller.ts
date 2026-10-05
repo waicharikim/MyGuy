@@ -5,6 +5,7 @@ import {
   Param,
   Body,
   Headers,
+  Header,
   BadRequestException,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -17,6 +18,7 @@ import {
   listUnclassifiedDecisionOutcomes,
 } from "./agent/decision-outcome";
 import { prisma } from "./infrastructure/prisma";
+import { operatorDashboardHtml } from "./operator-dashboard";
 
 @Controller("internal/human")
 export class HumanController {
@@ -27,6 +29,13 @@ export class HumanController {
     ) {
       throw new UnauthorizedException();
     }
+  }
+
+  @Get("dashboard")
+  @Header("Content-Type", "text/html; charset=utf-8")
+  @Header("Cache-Control", "no-store")
+  dashboard() {
+    return operatorDashboardHtml;
   }
 
   @Get("queue")

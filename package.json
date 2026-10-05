@@ -21,6 +21,7 @@
     "test:decision-messaging": "ts-node tests/decision-messaging.ts",
     "test:decision-outcome": "ts-node tests/decision-outcome.ts",
     "test:decision-outcome-inbound": "ts-node tests/decision-outcome-inbound.ts",
+    "test:decision-contract": "ts-node tests/decision-contract.ts",
     "smoke": "ts-node scripts/smoke.ts",
     "smoke:ambiguous": "ts-node scripts/smoke-ambiguous.ts",
     "smoke:human": "ts-node scripts/smoke-human-query.ts",

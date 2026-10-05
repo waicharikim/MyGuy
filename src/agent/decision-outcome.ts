@@ -14,7 +14,7 @@ async function syncOutcomeToProfile(
     userId: string;
     matter: string;
     decisionSummary: string;
-    recommendedOption: string;
+    recommendedOption: string | null;
     outcomeStatus: DecisionOutcomeStatus | null;
     outcomeNotes: string | null;
     outcomeSource: DecisionOutcomeSource | null;

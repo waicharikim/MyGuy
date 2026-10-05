@@ -52,6 +52,8 @@ Each pass writes a durable `GraphCheckpoint` to PostgreSQL. This is the applicat
 
 Intake, Skeptic, Ground and Close all request structured JSON and validate with defensive parsing. Invalid model output fails closed rather than being treated as trustworthy state.
 
+The closing pass enforces a typed decision contract for user-facing next action, optional recommendation, bounded confidence, assumptions, unresolved risks, unanswered material questions, and mutually exclusive resolved/escalated/human-query outcomes. Open questions are persisted separately from assumptions and exposed in operator handoffs. A recommendation is shown with its confidence estimate; if no recommendation is justified, recommendation and confidence remain null.
+
 ## 7. Grounding
 
 Implemented:
@@ -67,6 +69,7 @@ Implemented:
 Implemented:
 - durable Human Query records
 - pause/resume state
+- operator dashboard for human handoffs, outcome review, and quality metrics
 - operator answer endpoint
 - authenticated operator queue with decision, profile, and evidence context
 - user-reported post-follow-up outcomes, preserved for operator classification

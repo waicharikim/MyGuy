@@ -68,6 +68,10 @@ import { getChatModel } from "./model";
 import { prisma } from "../infrastructure/prisma";
 import { threadState } from "../domain/thread";
 import { formatDecisionReply } from "./decision-messaging";
+import {
+  formatDecisionRecommendation,
+  parseDecisionCloseOutput,
+} from "./decision-contract";
 
 import { createTask } from "../tools/create_task";
 import { scheduleFollowup } from "../tools/schedule_followup";
@@ -77,6 +81,7 @@ import {
   answerHumanQuery,
 } from "./human-query";
 import {
+  ensureDecisionRecord,
   updateDecisionRecordStatus,
   upsertDecisionRecord,
 } from "./decision-record";
@@ -1591,6 +1596,11 @@ Write for the user in plain language (not an operator checklist).
 Return ONLY JSON:
 {
   "nextAction": "2–4 short sentences the user should see",
+  "recommendedOption": "one option to consider, or null if information is insufficient",
+  "confidence": 0.0,
+  "assumptions": ["explicit assumptions behind the recommendation"],
+  "unresolvedRisks": ["material unresolved risks"],
+  "unresolvedQuestions": ["material facts or questions that remain unresolved"],
   "escalate": false,
   "resolved": false,
   "humanQuery": false,
@@ -1599,6 +1609,11 @@ Return ONLY JSON:
 
 Rules:
 
+- confidence is your estimate of how well-supported the recommendation is, from 0 to 1; use null with a null recommendation when you cannot responsibly recommend an option.
+- Never invent evidence, and lower confidence when facts are missing, disputed, or weakly sourced.
+- A resolved decision requires a recommendation; do not mark unresolved choices as resolved.
+- Include only material assumptions, unresolved risks, and unanswered material questions.
+- Keep unanswered facts in unresolvedQuestions; do not present them as assumptions.
 - Lines in known that start with "Human-provided evidence:" are already verified.
 - Do NOT ask to re-verify them.
 - Prefer one concrete next step.
@@ -1650,33 +1665,7 @@ Rules:
     ]);
 
   const parsed =
-    json<{
-      nextAction: string;
-      escalate: boolean;
-      resolved: boolean;
-      humanQuery: boolean;
-      decisionSummary: string;
-    }>(
-      res.content,
-      {
-        nextAction:
-          String(
-            res.content,
-          ),
-
-        escalate:
-          false,
-
-        resolved:
-          false,
-
-        humanQuery:
-          false,
-
-        decisionSummary:
-          "",
-      },
-    );
+    parseDecisionCloseOutput(res.content);
 
   const decisionStatus =
     parsed.escalate
@@ -1697,12 +1686,19 @@ Rules:
     threadId: state.threadId,
     matter: state.known.join("; ") || state.rawInput,
     status: decisionStatus,
-    decisionSummary: parsed.decisionSummary || parsed.nextAction || state.rawInput,
+    decisionSummary: parsed.decisionSummary,
     goal: state.rawInput,
-    recommendedOption: parsed.nextAction,
-    confidence: 0.7,
-    risks: state.skepticRisks,
-    assumptions: state.open,
+    recommendedOption: parsed.recommendedOption,
+    confidence: parsed.confidence,
+    risks: Array.from(new Set([
+      ...state.skepticRisks,
+      ...parsed.unresolvedRisks,
+    ])),
+    assumptions: parsed.assumptions,
+    unresolvedQuestions: Array.from(new Set([
+      ...state.open,
+      ...parsed.unresolvedQuestions,
+    ])),
     evidenceRefs: state.groundedFacts,
     humanInputs,
     escalationReason:
@@ -1717,7 +1713,7 @@ Rules:
     const need:
       InformationNeed = {
       question:
-        parsed.nextAction,
+        formatDecisionRecommendation(parsed),
 
       fact:
         parsed.nextAction,
@@ -1862,7 +1858,7 @@ Rules:
         "ESCALATED",
 
       nextAction:
-        parsed.nextAction,
+        formatDecisionRecommendation(parsed),
 
       awaitingHuman:
         false,
@@ -1933,7 +1929,7 @@ Rules:
         "USER",
 
       nextAction:
-        `${parsed.nextAction}\n\nThis sounds settled. Should I close this matter? (yes/no)`,
+        `${formatDecisionRecommendation(parsed)}\n\nThis sounds settled. Should I close this matter? (yes/no)`,
     };
 
     await checkpoint(
@@ -1955,7 +1951,7 @@ Rules:
       state.threadId,
 
     description:
-      parsed.nextAction,
+      formatDecisionRecommendation(parsed),
 
     idempotencyKey:
       `close:${state.threadId}:${parsed.nextAction}`,
@@ -1976,7 +1972,7 @@ Rules:
       ),
 
     promptContext:
-      parsed.nextAction,
+      formatDecisionRecommendation(parsed),
   });
 
   await prisma.thread.update({
@@ -2256,7 +2252,7 @@ export async function runShauriGraph(
     );
   }
 
-  await upsertDecisionRecord({
+  await ensureDecisionRecord({
     userId:
       input.userId,
     threadId:
@@ -2271,30 +2267,8 @@ export async function runShauriGraph(
         : thread.awaitingHuman
           ? DecisionRecordStatus.AWAITING_HUMAN
           : DecisionRecordStatus.OPEN,
-    decisionSummary:
-      thread.decisionSummary || "",
     goal:
       input.rawInput,
-    recommendedOption:
-      thread.decisionSummary || "",
-    confidence:
-      0,
-    risks:
-      thread.leaning ? [thread.leaning] : [],
-    assumptions:
-      thread.open,
-    evidenceRefs:
-      [],
-    humanInputs:
-      thread.known.filter(
-        (entry) =>
-          String(entry).includes("User-provided answer:") ||
-          String(entry).includes("Human-provided evidence:"),
-      ),
-    escalationReason:
-      thread.status === "ESCALATED"
-        ? thread.decisionSummary || null
-        : null,
   });
 
 

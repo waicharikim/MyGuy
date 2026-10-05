@@ -56,7 +56,20 @@ class MockModel {
             };
         }
         if (/Close/i.test(system)) {
-            return { content: JSON.stringify({ nextAction: "No action", escalate: false, resolved: false, humanQuery: false, decisionSummary: "" }) };
+            return {
+                content: JSON.stringify({
+                    nextAction: "No action",
+                    recommendedOption: "No immediate action",
+                    confidence: 0.5,
+                    assumptions: [],
+                    unresolvedRisks: [],
+                    unresolvedQuestions: [],
+                    escalate: false,
+                    resolved: false,
+                    humanQuery: false,
+                    decisionSummary: "No immediate action is indicated.",
+                }),
+            };
         }
         // Fallback: echo the user's content or return a short reply.
         const user = messages.find((m) => m.role === "user")?.content || "";

@@ -76,11 +76,14 @@ Configure:
 
 ## Human operations
 
-Operator endpoints are protected with `x-operator-token`:
+Operator data APIs are protected with `x-operator-token`:
 
+- `GET /internal/human/dashboard` — operator UI for queue, outcomes, and quality metrics
 - `GET /internal/human/queue` — open operator queries and escalations with decision context
 - `GET /internal/human/outcomes` — user-reported outcomes awaiting operator classification
 - `GET /internal/human/metrics` — all-time decision and reviewed-outcome quality metrics
+
+The dashboard page itself is public but contains no operator data; it prompts for a token before calling the protected APIs.
 - `POST /internal/human/decisions/:threadId/outcome` — classify a decision outcome
 - `POST /internal/human/queries/:id/answer`
 - `POST /internal/human/escalations/:id/resolve`
@@ -92,6 +95,10 @@ Shauri replies include a concise decision status, such as waiting for user input
 After a scheduled follow-up, the user's response is stored verbatim as an unclassified outcome report. Operators can review reports and classify them as `SUCCESSFUL`, `PARTIAL`, `UNSUCCESSFUL`, `NO_ACTION`, or `UNCLEAR`; the original user report and operator classification notes are retained separately.
 
 The metrics endpoint is aggregate-only. Its successful-action rate denominator includes reviewed `SUCCESSFUL`, `PARTIAL`, and `UNSUCCESSFUL` outcomes; it excludes `NO_ACTION` and `UNCLEAR`. Rates are `null` when their denominator is zero.
+
+The dashboard asks for the operator token and retains it only in the current browser tab's session storage. The APIs remain token-protected; the dashboard does not embed an operator credential.
+
+The closing pass requires a validated recommendation contract: a recommendation and bounded confidence estimate are stored together, with assumptions, unresolved risks, and unanswered material questions kept distinct. If the agent cannot justify a recommendation, both recommendation and confidence are left unset; invalid or contradictory model output fails instead of being replaced with synthetic defaults.
 
 An inbound reply to an outcome follow-up is intercepted before intent routing and the decision graph. It is stored with an acknowledgement and completes that turn. If multiple follow-ups are pending, Shauri asks the user to select the relevant matter before recording the outcome.
 
