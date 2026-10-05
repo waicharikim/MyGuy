@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HumanController = void 0;
 const common_1 = require("@nestjs/common");
 const human_query_1 = require("./agent/human-query");
+const operator_queue_1 = require("./agent/operator-queue");
 const prisma_1 = require("./infrastructure/prisma");
 let HumanController = class HumanController {
     auth(headers) {
@@ -22,6 +23,10 @@ let HumanController = class HumanController {
             headers["x-operator-token"] !== process.env.INTERNAL_OPERATOR_TOKEN) {
             throw new common_1.UnauthorizedException();
         }
+    }
+    async queue(headers) {
+        this.auth(headers);
+        return (0, operator_queue_1.getOperatorQueue)();
     }
     async answer(id, body, headers) {
         this.auth(headers);
@@ -45,6 +50,13 @@ let HumanController = class HumanController {
     }
 };
 exports.HumanController = HumanController;
+__decorate([
+    (0, common_1.Get)("queue"),
+    __param(0, (0, common_1.Headers)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], HumanController.prototype, "queue", null);
 __decorate([
     (0, common_1.Post)("queries/:id/answer"),
     __param(0, (0, common_1.Param)("id")),

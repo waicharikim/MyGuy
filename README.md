@@ -78,8 +78,11 @@ Configure:
 
 Operator endpoints are protected with `x-operator-token`:
 
+- `GET /internal/human/queue` — open operator queries and escalations with decision context
 - `POST /internal/human/queries/:id/answer`
 - `POST /internal/human/escalations/:id/resolve`
+
+The queue returns each handoff's question/reason, user contact and profile summary, known facts, outstanding questions, decision record, and available grounding evidence.
 
 ## Architecture status
 

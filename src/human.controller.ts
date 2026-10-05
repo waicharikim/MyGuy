@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Param,
   Body,
@@ -7,6 +8,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { resumeHumanQueryFromOperator } from "./agent/human-query";
+import { getOperatorQueue } from "./agent/operator-queue";
 import { prisma } from "./infrastructure/prisma";
 
 @Controller("internal/human")
@@ -18,6 +20,14 @@ export class HumanController {
     ) {
       throw new UnauthorizedException();
     }
+  }
+
+  @Get("queue")
+  async queue(
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    this.auth(headers);
+    return getOperatorQueue();
   }
 
   @Post("queries/:id/answer")

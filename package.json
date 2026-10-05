@@ -13,6 +13,7 @@
     "test:human-lifecycle": "ts-node tests/human-query-lifecycle.ts",
     "test:human-routing": "ts-node tests/human-routing.ts",
     "test:operator-human-resume": "ts-node tests/operator-human-resume.ts",
+    "test:operator-queue": "ts-node tests/operator-queue.ts",
     "smoke:threads": "ts-node scripts/smoke-thread-isolation.ts",
     "smoke:reset": "ts-node scripts/reset-smoke.ts",
     "test:human-authority-flow": "ts-node tests/human-authority-flow.ts",
