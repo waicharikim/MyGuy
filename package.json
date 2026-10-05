@@ -22,6 +22,7 @@
     "test:decision-outcome": "ts-node tests/decision-outcome.ts",
     "test:decision-outcome-inbound": "ts-node tests/decision-outcome-inbound.ts",
     "test:decision-contract": "ts-node tests/decision-contract.ts",
+    "test:agent-interaction": "ts-node tests/agent-interaction.ts",
     "smoke": "ts-node scripts/smoke.ts",
     "smoke:ambiguous": "ts-node scripts/smoke-ambiguous.ts",
     "smoke:human": "ts-node scripts/smoke-human-query.ts",

@@ -83,6 +83,7 @@ exports.answerHumanQuery = answerHumanQuery;
 exports.resumeHumanQueryFromOperator = resumeHumanQueryFromOperator;
 const client_1 = require("@prisma/client");
 const prisma_1 = require("../infrastructure/prisma");
+const operator_notification_1 = require("./operator-notification");
 const thread_1 = require("../domain/thread");
 /**
  * Create an OPEN HumanQuery.
@@ -132,6 +133,9 @@ async function createHumanQuery(input) {
      * Pause the thread and explicitly record who owns the answer.
      */
     await thread_1.threadState.transition(input.threadId, "pause_human", "GROUND", source);
+    if (source === client_1.HumanQuerySource.OPERATOR) {
+        await (0, operator_notification_1.notifyOperatorOfHumanQuery)(q.id);
+    }
     return q;
 }
 /**

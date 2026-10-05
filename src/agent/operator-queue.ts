@@ -59,6 +59,9 @@ export async function getOperatorQueue() {
       },
       orderBy: { createdAt: "asc" },
       include: {
+        operatorNotification: {
+          select: { id: true, attempts: true, lastError: true, sentAt: true },
+        },
         thread: { select: operatorThreadSelect },
       },
     }),
@@ -66,6 +69,9 @@ export async function getOperatorQueue() {
       where: { status: "OPEN" },
       orderBy: { createdAt: "asc" },
       include: {
+        operatorNotification: {
+          select: { id: true, attempts: true, lastError: true, sentAt: true },
+        },
         thread: { select: operatorThreadSelect },
         user: {
           select: {
@@ -94,12 +100,14 @@ export async function getOperatorQueue() {
       knownContext: query.knownContext,
       source: query.source,
       status: query.status,
+      operatorNotification: query.operatorNotification,
       thread: query.thread,
     })),
     escalations: escalations.map((escalation) => ({
       id: escalation.id,
       createdAt: escalation.createdAt,
       reason: escalation.reason,
+      operatorNotification: escalation.operatorNotification,
       user: escalation.user,
       thread: escalation.thread,
     })),

@@ -131,6 +131,13 @@ exports.operatorDashboardHtml = `<!doctype html>
       card.append(el("h3", type + " · " + item.matter));
       card.append(el("p", item.question || item.reason));
       card.append(el("p", item.reason || ""));
+      if (item.operatorNotification) {
+        const notification = item.operatorNotification;
+        card.append(el("p", notification.sentAt
+          ? "Operator alert sent."
+          : "Operator alert pending (attempts: " + notification.attempts + ")" +
+            (notification.lastError ? " — " + notification.lastError : "")));
+      }
       if (item.thread) card.append(decisionText(item.thread));
       if (type === "Human query") {
         const answer = el("button", "Answer query");
@@ -207,6 +214,15 @@ exports.operatorDashboardHtml = `<!doctype html>
       addMetric("Awaiting human", quality.decisions.byStatus.AWAITING_HUMAN);
       addMetric("Escalated", quality.decisions.byStatus.ESCALATED);
       addMetric("Resolution rate", quality.decisions.resolutionRate === null ? null : Math.round(quality.decisions.resolutionRate * 100) + "%");
+      addMetric("Recommendation coverage", quality.decisions.recommendationCoverage === null ? null : Math.round(quality.decisions.recommendationCoverage * 100) + "%");
+      addMetric("Recommendation confirmation", quality.decisions.recommendationConfirmationRate === null ? null : Math.round(quality.decisions.recommendationConfirmationRate * 100) + "%");
+      addMetric("Evidence rate", quality.decisions.evidenceRate === null ? null : Math.round(quality.decisions.evidenceRate * 100) + "%");
+      addMetric("Low-confidence recommendations (<50%)", quality.decisions.lowConfidenceRecommendations);
+      addMetric("Average hours to recommendation", quality.decisions.averageHoursToRecommendation === null ? null : Math.round(quality.decisions.averageHoursToRecommendation * 10) / 10);
+      addMetric("Open decisions stalled >7 days", quality.decisions.staleOpenBeyondSevenDays);
+      addMetric("Operator query response rate", quality.handoffs.operatorQueryResponseRate === null ? null : Math.round(quality.handoffs.operatorQueryResponseRate * 100) + "%");
+      addMetric("Escalation resolution rate", quality.handoffs.escalationResolutionRate === null ? null : Math.round(quality.handoffs.escalationResolutionRate * 100) + "%");
+      addMetric("Returning users (2+ WhatsApp days)", quality.users.returnRate === null ? null : Math.round(quality.users.returnRate * 100) + "%");
       addMetric("Outcome reports", quality.outcomes.userReported);
       addMetric("Pending review", quality.outcomes.pendingReview);
       addMetric("Successful among reviewed actions", quality.outcomes.successfulRateAmongClassifiedActions === null ? null : Math.round(quality.outcomes.successfulRateAmongClassifiedActions * 100) + "%");

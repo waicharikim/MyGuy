@@ -61,6 +61,8 @@ async function main() {
         });
         assert(created.threadId === thread.id, "Decision record should be created for the thread.");
         assert(created.status === client_1.DecisionRecordStatus.OPEN, "Initial decision record status should be OPEN.");
+        assert(created.closedAt === null, "Open decisions must not have a closure timestamp.");
+        assert(created.recommendedAt instanceof Date, "A persisted recommendation must have a recommendation timestamp.");
         assert(created.matter.includes("Should I take the job offer?"), "Decision matter should be persisted.");
         const updated = await (0, decision_record_1.upsertDecisionRecord)({
             userId: user.id,
@@ -93,8 +95,10 @@ async function main() {
         assert(stored.unresolvedQuestions.includes("What is the confirmed salary?"), "Unanswered material questions should be retained separately from assumptions.");
         const reopened = await (0, decision_record_1.updateDecisionRecordStatus)(thread.id, client_1.DecisionRecordStatus.OPEN);
         assert(reopened.status === client_1.DecisionRecordStatus.OPEN, "A matter awaiting more user input must remain OPEN.");
+        assert(reopened.closedAt === null, "Reopening a decision must clear its closure timestamp.");
         const resolved = await (0, decision_record_1.updateDecisionRecordStatus)(thread.id, client_1.DecisionRecordStatus.RESOLVED);
         assert(resolved.status === client_1.DecisionRecordStatus.RESOLVED, "Confirmed closure must mark the decision record RESOLVED.");
+        assert(resolved.closedAt instanceof Date, "Confirmed closure must persist its timestamp.");
         console.log("✓ decision record created");
         console.log("✓ status updated");
         console.log("✓ confidence and recommendation persisted");

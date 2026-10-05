@@ -367,6 +367,7 @@ export async function listUnclassifiedDecisionOutcomes() {
 }
 
 export async function getDecisionQualityMetrics() {
+  const staleBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const [
     totalDecisionRecords,
     decisionsByStatus,
@@ -378,6 +379,18 @@ export async function getDecisionQualityMetrics() {
     resolvedWithOutcomeCount,
     actionableOutcomeCount,
     successfulOutcomeCount,
+    recommendationCount,
+    confirmedRecommendationCount,
+    evidenceBackedDecisionCount,
+    lowConfidenceRecommendationCount,
+    staleOpenDecisionCount,
+    operatorQueriesByStatus,
+    escalationCount,
+    resolvedEscalationCount,
+    recommendationTiming,
+    resolutionTiming,
+    userActivity,
+    returningUserActivity,
   ] = await Promise.all([
     prisma.decisionRecord.count(),
     prisma.decisionRecord.groupBy({
@@ -432,6 +445,66 @@ export async function getDecisionQualityMetrics() {
         outcomeClassifiedAt: { not: null },
       },
     }),
+    prisma.decisionRecord.count({
+      where: { recommendedOption: { not: null } },
+    }),
+    prisma.decisionRecord.count({
+      where: {
+        status: DecisionRecordStatus.RESOLVED,
+        recommendedOption: { not: null },
+      },
+    }),
+    prisma.decisionRecord.count({
+      where: { evidenceRefs: { isEmpty: false } },
+    }),
+    prisma.decisionRecord.count({
+      where: {
+        recommendedOption: { not: null },
+        confidence: { lt: 0.5 },
+      },
+    }),
+    prisma.decisionRecord.count({
+      where: {
+        status: { in: [DecisionRecordStatus.OPEN, DecisionRecordStatus.AWAITING_HUMAN] },
+        updatedAt: { lt: staleBefore },
+      },
+    }),
+    prisma.humanQuery.groupBy({
+      by: ["status"],
+      where: { source: "OPERATOR" },
+      _count: { _all: true },
+    }),
+    prisma.escalation.count(),
+    prisma.escalation.count({ where: { status: "RESOLVED" } }),
+    prisma.$queryRaw<Array<{ averageHours: number | null }>>`
+      SELECT AVG(EXTRACT(EPOCH FROM ("recommendedAt" - "createdAt")) / 3600.0) AS "averageHours"
+      FROM "DecisionRecord"
+      WHERE "recommendedAt" IS NOT NULL
+    `,
+    prisma.$queryRaw<Array<{ averageHours: number | null }>>`
+      SELECT AVG(EXTRACT(EPOCH FROM ("closedAt" - "createdAt")) / 3600.0) AS "averageHours"
+      FROM "DecisionRecord"
+      WHERE "closedAt" IS NOT NULL
+    `,
+    prisma.$queryRaw<Array<{ count: bigint | number }>>`
+      SELECT COUNT(DISTINCT thread."userId") AS count
+      FROM "Message" AS message
+      JOIN "Thread" AS thread ON thread."id" = message."threadId"
+      WHERE message."direction" = 'IN'
+        AND message."channel" = 'whatsapp'
+    `,
+    prisma.$queryRaw<Array<{ count: bigint | number }>>`
+      SELECT COUNT(*) AS count
+      FROM (
+        SELECT thread."userId"
+        FROM "Message" AS message
+        JOIN "Thread" AS thread ON thread."id" = message."threadId"
+        WHERE message."direction" = 'IN'
+          AND message."channel" = 'whatsapp'
+        GROUP BY thread."userId"
+        HAVING COUNT(DISTINCT DATE(message."createdAt")) >= 2
+      ) AS returning_users
+    `,
   ]);
 
   const decisionStatusCounts: Record<DecisionRecordStatus, number> = {
@@ -456,6 +529,21 @@ export async function getDecisionQualityMetrics() {
       outcomeStatusCounts[group.outcomeStatus] = group._count._all;
     }
   }
+  const operatorQueryCounts = { OPEN: 0, ANSWERED: 0, CANCELLED: 0 };
+  for (const group of operatorQueriesByStatus) {
+    operatorQueryCounts[group.status] = group._count._all;
+  }
+  const totalOperatorQueryCount = operatorQueryCounts.OPEN +
+    operatorQueryCounts.ANSWERED +
+    operatorQueryCounts.CANCELLED;
+  const meanHours = (rows: Array<{ averageHours: number | null }>) => {
+    const value = rows[0]?.averageHours;
+    return value === null || value === undefined
+      ? null
+      : Number(value);
+  };
+  const activeUsers = Number(userActivity[0]?.count ?? 0);
+  const returningUsers = Number(returningUserActivity[0]?.count ?? 0);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -467,6 +555,45 @@ export async function getDecisionQualityMetrics() {
         totalDecisionRecords === 0
           ? null
           : resolvedDecisionCount / totalDecisionRecords,
+      recommendationCoverage:
+        totalDecisionRecords === 0
+          ? null
+          : recommendationCount / totalDecisionRecords,
+      recommendationConfirmationRate:
+        recommendationCount === 0
+          ? null
+          : confirmedRecommendationCount / recommendationCount,
+      evidenceRate:
+        totalDecisionRecords === 0
+          ? null
+          : evidenceBackedDecisionCount / totalDecisionRecords,
+      lowConfidenceRecommendations: lowConfidenceRecommendationCount,
+      lowConfidenceThreshold: 0.5,
+      averageHoursToRecommendation: meanHours(recommendationTiming),
+      averageHoursToResolution: meanHours(resolutionTiming),
+      staleOpenBeyondSevenDays: staleOpenDecisionCount,
+    },
+    handoffs: {
+      operatorQueries: operatorQueryCounts,
+      operatorQueryResponseRate:
+        totalOperatorQueryCount === 0
+          ? null
+          : operatorQueryCounts.ANSWERED / totalOperatorQueryCount,
+      escalations: escalationCount,
+      resolvedEscalations: resolvedEscalationCount,
+      escalationResolutionRate:
+        escalationCount === 0
+          ? null
+          : resolvedEscalationCount / escalationCount,
+    },
+    users: {
+      returnDefinition: "at_least_two_whatsapp_inbound_days",
+      activeUsers,
+      returningUsers,
+      returnRate:
+        activeUsers === 0
+          ? null
+          : returningUsers / activeUsers,
     },
     outcomes: {
       userReported: reportedOutcomeCount,

@@ -83,6 +83,11 @@ async function main() {
       created.status === DecisionRecordStatus.OPEN,
       "Initial decision record status should be OPEN.",
     );
+    assert(created.closedAt === null, "Open decisions must not have a closure timestamp.");
+    assert(
+      created.recommendedAt instanceof Date,
+      "A persisted recommendation must have a recommendation timestamp.",
+    );
 
     assert(
       created.matter.includes("Should I take the job offer?"),
@@ -156,6 +161,10 @@ async function main() {
       reopened.status === DecisionRecordStatus.OPEN,
       "A matter awaiting more user input must remain OPEN.",
     );
+    assert(
+      reopened.closedAt === null,
+      "Reopening a decision must clear its closure timestamp.",
+    );
 
     const resolved = await updateDecisionRecordStatus(
       thread.id,
@@ -164,6 +173,10 @@ async function main() {
     assert(
       resolved.status === DecisionRecordStatus.RESOLVED,
       "Confirmed closure must mark the decision record RESOLVED.",
+    );
+    assert(
+      resolved.closedAt instanceof Date,
+      "Confirmed closure must persist its timestamp.",
     );
 
     console.log("✓ decision record created");

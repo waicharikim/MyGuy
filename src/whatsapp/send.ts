@@ -7,12 +7,18 @@
  */
 export async function sendWhatsappMessage(
   toPhone: string,
-  text: string
+  text: string,
+  options: { required?: boolean } = {},
 ): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_TOKEN;
 
   if (!phoneNumberId || !token) {
+    if (options.required) {
+      throw new Error(
+        "WhatsApp is not configured; set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN",
+      );
+    }
     console.warn(
       `[whatsapp] not configured — skip send to ${toPhone}: ${text.slice(0, 120)}${text.length > 120 ? "…" : ""}`
     );

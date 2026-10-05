@@ -91,20 +91,26 @@ enum DecisionOutcomeSource {
   OPERATOR
 }
 
+enum OperatorNotificationType {
+  HUMAN_QUERY
+  ESCALATION
+}
+
 model User {
   id        String   @id @default(uuid())
   phone     String   @unique
   createdAt DateTime @default(now())
 
-  profile UserProfile?
-  threads Thread[]
-  tasks   Task[]
-  notes   Note[]
-  payments Payment[]
-  humanQueries HumanQuery[]
-  escalations Escalation[]
+  profile             UserProfile?
+  threads             Thread[]
+  tasks               Task[]
+  notes               Note[]
+  payments            Payment[]
+  humanQueries        HumanQuery[]
+  escalations         Escalation[]
   knowledgeCandidates KnowledgeCandidate[]
-  decisionRecords DecisionRecord[]
+  decisionRecords     DecisionRecord[]
+  agents              Agent[]
 }
 
 model UserProfile {
@@ -120,113 +126,115 @@ model UserProfile {
 }
 
 model Thread {
-  id                       String       @id @default(uuid())
+  id                       String           @id @default(uuid())
   userId                   String
-  user                     User         @relation(fields: [userId], references: [id])
-  status                   ThreadStatus  @default(OPEN)
-  currentPass              DecisionPass  @default(INTAKE)
-  awaitingReply            Boolean      @default(false)
-  awaitingHuman            Boolean      @default(false)
+  user                     User             @relation(fields: [userId], references: [id])
+  status                   ThreadStatus     @default(OPEN)
+  currentPass              DecisionPass     @default(INTAKE)
+  awaitingReply            Boolean          @default(false)
+  awaitingHuman            Boolean          @default(false)
   awaitingSource           HumanQuerySource @default(USER)
-  pendingCloseConfirmation Boolean      @default(false)
+  pendingCloseConfirmation Boolean          @default(false)
   outcomeRequestedAt       DateTime?
-  outcomeSelectionPending Boolean      @default(false)
-  outcomeSelectedForReply Boolean      @default(false)
-  followupCount            Int          @default(0)
-  known                    String[]     @default([])
-  open                     String[]     @default([])
+  outcomeSelectionPending  Boolean          @default(false)
+  outcomeSelectedForReply  Boolean          @default(false)
+  followupCount            Int              @default(0)
+  known                    String[]         @default([])
+  open                     String[]         @default([])
   leaning                  String?
   skepticArgument          String?
   decisionSummary          String?
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
   closedAt                 DateTime?
 
-  messages              Message[]
-  followups             ScheduledFollowup[]
-  tasks                 Task[]
-  notes                 Note[]
-  groundingEvidence     GroundingEvidence[]
-  humanQueries          HumanQuery[]
-  escalations           Escalation[]
-  knowledgeCandidates   KnowledgeCandidate[]
-  checkpoints           GraphCheckpoint[]
-  agentInteractions     AgentInteraction[]
-  payments              Payment[]
-  decisionRecords       DecisionRecord[]
+  messages            Message[]
+  followups           ScheduledFollowup[]
+  tasks               Task[]
+  notes               Note[]
+  groundingEvidence   GroundingEvidence[]
+  humanQueries        HumanQuery[]
+  escalations         Escalation[]
+  knowledgeCandidates KnowledgeCandidate[]
+  checkpoints         GraphCheckpoint[]
+  agentInteractions   AgentInteraction[]
+  payments            Payment[]
+  decisionRecords     DecisionRecord[]
 
   @@index([userId, status, updatedAt])
 }
 
 model DecisionRecord {
-  id                 String                @id @default(uuid())
-  userId             String
-  user               User                  @relation(fields: [userId], references: [id])
-  threadId           String                @unique
-  thread             Thread                @relation(fields: [threadId], references: [id])
-  matter             String               @default("")
-  status             DecisionRecordStatus  @default(OPEN)
-  decisionSummary    String               @default("")
-  goal               String               @default("")
-  recommendedOption  String?
-  confidence         Float?
-  risks              String[]             @default([])
-  assumptions        String[]             @default([])
-  unresolvedQuestions String[]            @default([])
-  evidenceRefs       String[]             @default([])
-  humanInputs        String[]             @default([])
-  escalationReason   String?
-  outcomeStatus      DecisionOutcomeStatus?
-  outcomeNotes       String?
-  outcomeSource      DecisionOutcomeSource?
-  outcomeAt          DateTime?
+  id                         String                 @id @default(uuid())
+  userId                     String
+  user                       User                   @relation(fields: [userId], references: [id])
+  threadId                   String                 @unique
+  thread                     Thread                 @relation(fields: [threadId], references: [id])
+  matter                     String                 @default("")
+  status                     DecisionRecordStatus   @default(OPEN)
+  decisionSummary            String                 @default("")
+  goal                       String                 @default("")
+  recommendedOption          String?
+  confidence                 Float?
+  risks                      String[]               @default([])
+  assumptions                String[]               @default([])
+  unresolvedQuestions        String[]               @default([])
+  evidenceRefs               String[]               @default([])
+  humanInputs                String[]               @default([])
+  escalationReason           String?
+  outcomeStatus              DecisionOutcomeStatus?
+  outcomeNotes               String?
+  outcomeSource              DecisionOutcomeSource?
+  outcomeAt                  DateTime?
   outcomeClassificationNotes String?
-  outcomeClassifiedAt DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  outcomeClassifiedAt        DateTime?
+  recommendedAt              DateTime?
+  closedAt                   DateTime?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
 
   @@index([userId, status, updatedAt])
 }
 
 model InboundReceipt {
-  id         String   @id @default(uuid())
-  channel    String
-  externalId String
-  phone      String
-  text       String
+  id          String    @id @default(uuid())
+  channel     String
+  externalId  String
+  phone       String
+  text        String
   processedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@unique([channel, externalId])
 }
 
 model Message {
-  id          String          @id @default(uuid())
-  threadId    String
-  thread      Thread          @relation(fields: [threadId], references: [id])
-  direction   MessageDirection
-  pass        DecisionPass?
-  channel     String          @default("whatsapp")
-  externalId  String?
-  content     String
-  metadata    Json?
-  createdAt   DateTime        @default(now())
+  id         String           @id @default(uuid())
+  threadId   String
+  thread     Thread           @relation(fields: [threadId], references: [id])
+  direction  MessageDirection
+  pass       DecisionPass?
+  channel    String           @default("whatsapp")
+  externalId String?
+  content    String
+  metadata   Json?
+  createdAt  DateTime         @default(now())
 
   @@unique([channel, externalId])
   @@index([threadId, createdAt])
 }
 
 model GraphCheckpoint {
-  id          String      @id @default(uuid())
-  threadId    String
-  thread      Thread      @relation(fields: [threadId], references: [id])
+  id            String       @id @default(uuid())
+  threadId      String
+  thread        Thread       @relation(fields: [threadId], references: [id])
   graphThreadId String
-  pass        DecisionPass
-  state       Json
-  createdAt   DateTime    @default(now())
+  pass          DecisionPass
+  state         Json
+  createdAt     DateTime     @default(now())
 
-  @@index([threadId, createdAt])
   @@unique([threadId, graphThreadId, pass, createdAt])
+  @@index([threadId, createdAt])
 }
 
 model ScheduledFollowup {
@@ -260,32 +268,33 @@ model GroundingEvidence {
 }
 
 model HumanQuery {
-  id              String           @id @default(uuid())
-  userId          String
-  user            User             @relation(fields: [userId], references: [id])
-  threadId        String
-  thread          Thread           @relation(fields: [threadId], references: [id])
-  matter          String
-  question        String
-  knownContext    String
-  reason          String
-  source          HumanQuerySource @default(USER)
-  status          HumanQueryStatus @default(OPEN)
-  answer          String?
-  messages        HumanQueryMessage[]
-  createdAt       DateTime         @default(now())
-  answeredAt      DateTime?
+  id                   String                @id @default(uuid())
+  userId               String
+  user                 User                  @relation(fields: [userId], references: [id])
+  threadId             String
+  thread               Thread                @relation(fields: [threadId], references: [id])
+  matter               String
+  question             String
+  knownContext         String
+  reason               String
+  source               HumanQuerySource      @default(USER)
+  status               HumanQueryStatus      @default(OPEN)
+  answer               String?
+  messages             HumanQueryMessage[]
+  operatorNotification OperatorNotification?
+  createdAt            DateTime              @default(now())
+  answeredAt           DateTime?
 
   @@index([threadId, status])
 }
 
 model HumanQueryMessage {
-  id           String     @id @default(uuid())
+  id           String           @id @default(uuid())
   humanQueryId String
-  humanQuery   HumanQuery @relation(fields: [humanQueryId], references: [id])
+  humanQuery   HumanQuery       @relation(fields: [humanQueryId], references: [id])
   direction    MessageDirection
   content      String
-  createdAt    DateTime   @default(now())
+  createdAt    DateTime         @default(now())
 }
 
 model Escalation {
@@ -299,31 +308,50 @@ model Escalation {
   createdAt  DateTime         @default(now())
   resolvedAt DateTime?
 
-  messages EscalationMessage[]
+  messages             EscalationMessage[]
+  operatorNotification OperatorNotification?
+
   @@index([status, createdAt])
 }
 
+model OperatorNotification {
+  id            String                   @id @default(uuid())
+  type          OperatorNotificationType
+  humanQueryId  String?                  @unique
+  humanQuery    HumanQuery?              @relation(fields: [humanQueryId], references: [id], onDelete: Cascade)
+  escalationId  String?                  @unique
+  escalation    Escalation?              @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  attempts      Int                      @default(0)
+  nextAttemptAt DateTime                 @default(now())
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@index([sentAt, nextAttemptAt])
+}
+
 model EscalationMessage {
-  id           String          @id @default(uuid())
+  id           String           @id @default(uuid())
   escalationId String
-  escalation   Escalation      @relation(fields: [escalationId], references: [id])
+  escalation   Escalation       @relation(fields: [escalationId], references: [id])
   direction    MessageDirection
   content      String
-  createdAt    DateTime        @default(now())
+  createdAt    DateTime         @default(now())
 }
 
 model KnowledgeCandidate {
-  id          String                    @id @default(uuid())
+  id          String                   @id @default(uuid())
   userId      String
-  user        User                      @relation(fields: [userId], references: [id])
+  user        User                     @relation(fields: [userId], references: [id])
   threadId    String
-  thread      Thread                    @relation(fields: [threadId], references: [id])
+  thread      Thread                   @relation(fields: [threadId], references: [id])
   proposition String
   evidence    Json?
-  status      KnowledgeCandidateStatus  @default(PENDING)
+  status      KnowledgeCandidateStatus @default(PENDING)
   reviewedAt  DateTime?
   reviewedBy  String?
-  createdAt   DateTime                  @default(now())
+  createdAt   DateTime                 @default(now())
 
   @@index([status, createdAt])
 }
@@ -341,7 +369,7 @@ model Note {
 model Payment {
   id                String        @id @default(uuid())
   userId            String
-  user               User         @relation(fields: [userId], references: [id])
+  user              User          @relation(fields: [userId], references: [id])
   threadId          String?       @unique
   thread            Thread?       @relation(fields: [threadId], references: [id])
   amount            Int
@@ -349,7 +377,7 @@ model Payment {
   checkoutRequestId String?       @unique
   mpesaReceipt      String?
   originalMessage   String
-  externalMessageId String? @unique
+  externalMessageId String?       @unique
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 }
@@ -367,60 +395,66 @@ model Task {
 }
 
 model Agent {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  capabilities AgentCapability[]
+  id                    String             @id @default(uuid())
+  name                  String             @unique
+  ownerUserId           String?
+  owner                 User?              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  description           String
+  enabled               Boolean            @default(true)
+  createdAt             DateTime           @default(now())
+  capabilities          AgentCapability[]
+  outgoingPermissions   AgentPermission[]  @relation("requesterAgentPermissions")
+  incomingPermissions   AgentPermission[]  @relation("responderAgentPermissions")
   requestedInteractions AgentInteraction[] @relation("requesterAgent")
-  receivedInteractions AgentInteraction[] @relation("responderAgent")
+  receivedInteractions  AgentInteraction[] @relation("responderAgent")
 }
 
 model AgentCapability {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   agentId     String
-  agent       Agent    @relation(fields: [agentId], references: [id])
+  agent       Agent   @relation(fields: [agentId], references: [id])
   name        String
   description String
-  enabled     Boolean  @default(true)
+  enabled     Boolean @default(true)
 
   @@unique([agentId, name])
 }
 
 model AgentPermission {
-  id             String @id @default(uuid())
+  id               String  @id @default(uuid())
   requesterAgentId String
+  requesterAgent   Agent   @relation("requesterAgentPermissions", fields: [requesterAgentId], references: [id], onDelete: Cascade)
   responderAgentId String
-  capability      String
-  allowed         Boolean @default(false)
+  responderAgent   Agent   @relation("responderAgentPermissions", fields: [responderAgentId], references: [id], onDelete: Cascade)
+  capability       String
+  allowed          Boolean @default(false)
 
   @@unique([requesterAgentId, responderAgentId, capability])
 }
 
 model AgentInteraction {
-  id            String                   @id @default(uuid())
-  requesterId   String
-  requester     Agent                    @relation("requesterAgent", fields: [requesterId], references: [id])
-  responderId   String
-  responder     Agent                    @relation("responderAgent", fields: [responderId], references: [id])
-  threadId      String?
-  thread        Thread?                  @relation(fields: [threadId], references: [id])
-  capability    String
-  request       Json
-  response      Json?
-  status        AgentInteractionStatus   @default(REQUESTED)
-  createdAt     DateTime                 @default(now())
-  completedAt   DateTime?
+  id          String                 @id @default(uuid())
+  requesterId String
+  requester   Agent                  @relation("requesterAgent", fields: [requesterId], references: [id])
+  responderId String
+  responder   Agent                  @relation("responderAgent", fields: [responderId], references: [id])
+  threadId    String?
+  thread      Thread?                @relation(fields: [threadId], references: [id])
+  capability  String
+  request     Json
+  response    Json?
+  status      AgentInteractionStatus @default(REQUESTED)
+  createdAt   DateTime               @default(now())
+  completedAt DateTime?
 
   messages AgentInteractionMessage[]
 }
 
 model AgentInteractionMessage {
-  id            String            @id @default(uuid())
+  id            String           @id @default(uuid())
   interactionId String
-  interaction   AgentInteraction  @relation(fields: [interactionId], references: [id])
+  interaction   AgentInteraction @relation(fields: [interactionId], references: [id])
   direction     MessageDirection
   content       String
-  createdAt     DateTime          @default(now())
+  createdAt     DateTime         @default(now())
 }

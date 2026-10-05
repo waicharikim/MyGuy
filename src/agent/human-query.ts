@@ -47,6 +47,7 @@
 import { HumanQuerySource } from "@prisma/client";
 
 import { prisma } from "../infrastructure/prisma";
+import { notifyOperatorOfHumanQuery } from "./operator-notification";
 import { threadState } from "../domain/thread";
 
 export type HumanQuerySourceInput = "USER" | "OPERATOR";
@@ -171,6 +172,10 @@ export async function createHumanQuery(
     "GROUND",
     source,
   );
+
+  if (source === HumanQuerySource.OPERATOR) {
+    await notifyOperatorOfHumanQuery(q.id);
+  }
 
   return q;
 }

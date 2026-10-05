@@ -8,10 +8,13 @@ exports.sendWhatsappMessage = sendWhatsappMessage;
  * logs and returns instead of throwing so operator resume and smokes
  * can run without Meta credentials.
  */
-async function sendWhatsappMessage(toPhone, text) {
+async function sendWhatsappMessage(toPhone, text, options = {}) {
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     const token = process.env.WHATSAPP_TOKEN;
     if (!phoneNumberId || !token) {
+        if (options.required) {
+            throw new Error("WhatsApp is not configured; set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN");
+        }
         console.warn(`[whatsapp] not configured — skip send to ${toPhone}: ${text.slice(0, 120)}${text.length > 120 ? "…" : ""}`);
         return;
     }

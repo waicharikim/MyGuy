@@ -13,6 +13,8 @@ function assert(condition, message) {
 }
 async function main() {
     let userId;
+    let metricFixtureUserId;
+    let metricFixtureThreadId;
     const previousToken = process.env.INTERNAL_OPERATOR_TOKEN;
     try {
         const user = await prisma_1.prisma.user.create({
@@ -77,8 +79,31 @@ async function main() {
         const metricFixtureUser = await prisma_1.prisma.user.create({
             data: { phone: `254701${Date.now().toString().slice(-7)}` },
         });
+        metricFixtureUserId = metricFixtureUser.id;
         const metricFixtureThread = await prisma_1.prisma.thread.create({
             data: { userId: metricFixtureUser.id, status: "CLOSED" },
+        });
+        metricFixtureThreadId = metricFixtureThread.id;
+        const metricRecommendationTime = new Date(Date.now() - 30 * 60 * 1000);
+        const previousDay = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        await prisma_1.prisma.message.createMany({
+            data: [
+                {
+                    threadId: metricFixtureThread.id,
+                    direction: "IN",
+                    channel: "whatsapp",
+                    externalId: `metric-first-${Date.now()}`,
+                    content: "First user session",
+                    createdAt: previousDay,
+                },
+                {
+                    threadId: metricFixtureThread.id,
+                    direction: "IN",
+                    channel: "whatsapp",
+                    externalId: `metric-second-${Date.now()}`,
+                    content: "Returning user session",
+                },
+            ],
         });
         await prisma_1.prisma.decisionRecord.create({
             data: {
@@ -86,6 +111,12 @@ async function main() {
                 threadId: metricFixtureThread.id,
                 status: "RESOLVED",
                 matter: "Metrics fixture",
+                recommendedOption: "Take the confirmed option.",
+                confidence: 0.4,
+                evidenceRefs: ["https://example.test/source"],
+                createdAt: new Date(Date.now() - 60 * 60 * 1000),
+                recommendedAt: metricRecommendationTime,
+                closedAt: new Date(),
                 outcomeStatus: "SUCCESSFUL",
                 outcomeSource: "OPERATOR",
                 outcomeClassifiedAt: new Date(),
@@ -100,11 +131,25 @@ async function main() {
         assert(typeof metricsAfter.decisions.byStatus.OPEN === "number" &&
             typeof metricsAfter.outcomes.byStatus.NO_ACTION === "number", "Metrics should return zero-filled counts for every status.");
         assert(metricsAfter.outcomes.successfulRateAmongClassifiedActions !== null, "Successful rate should be defined when actionable outcomes exist.");
+        assert(metricsAfter.decisions.recommendationCoverage !== null &&
+            metricsAfter.decisions.evidenceRate !== null &&
+            metricsAfter.decisions.averageHoursToRecommendation !== null, "Recommendation, evidence, and recommendation timing metrics should be calculated.");
+        assert(metricsAfter.decisions.lowConfidenceRecommendations >=
+            metricsBefore.decisions.lowConfidenceRecommendations + 1, "Low-confidence recommendations should be counted.");
+        assert(metricsAfter.handoffs &&
+            typeof metricsAfter.handoffs.operatorQueryResponseRate !== "undefined", "Operator handoff response metrics should be returned.");
+        assert(metricsAfter.users.returningUsers >= metricsBefore.users.returningUsers + 1 &&
+            metricsAfter.users.returnDefinition === "at_least_two_whatsapp_inbound_days", "Repeat-user metrics should count distinct inbound WhatsApp days.");
         await prisma_1.prisma.decisionRecord.deleteMany({
+            where: { threadId: metricFixtureThread.id },
+        });
+        await prisma_1.prisma.message.deleteMany({
             where: { threadId: metricFixtureThread.id },
         });
         await prisma_1.prisma.thread.delete({ where: { id: metricFixtureThread.id } });
         await prisma_1.prisma.user.delete({ where: { id: metricFixtureUser.id } });
+        metricFixtureThreadId = undefined;
+        metricFixtureUserId = undefined;
         const pending = await controller.outcomes({
             "x-operator-token": "decision-outcome-test-token",
         });
@@ -180,6 +225,22 @@ async function main() {
         }
         else {
             process.env.INTERNAL_OPERATOR_TOKEN = previousToken;
+        }
+        if (metricFixtureThreadId) {
+            await prisma_1.prisma.decisionRecord.deleteMany({
+                where: { threadId: metricFixtureThreadId },
+            });
+            await prisma_1.prisma.message.deleteMany({
+                where: { threadId: metricFixtureThreadId },
+            });
+            await prisma_1.prisma.thread.deleteMany({
+                where: { id: metricFixtureThreadId },
+            });
+        }
+        if (metricFixtureUserId) {
+            await prisma_1.prisma.user.deleteMany({
+                where: { id: metricFixtureUserId },
+            });
         }
         if (userId) {
             await prisma_1.prisma.decisionRecord.deleteMany({ where: { userId } });

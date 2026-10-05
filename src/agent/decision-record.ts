@@ -59,6 +59,12 @@ export async function upsertDecisionRecord(input: DecisionRecordInput) {
     evidenceRefs: Array.isArray(input.evidenceRefs) ? input.evidenceRefs.filter(Boolean) : [],
     humanInputs: Array.isArray(input.humanInputs) ? input.humanInputs.filter(Boolean) : [],
     escalationReason: input.escalationReason ?? null,
+    recommendedAt: recommendedOption ? new Date() : null,
+    closedAt:
+      (input.status ?? DecisionRecordStatus.OPEN) ===
+      DecisionRecordStatus.RESOLVED
+        ? new Date()
+        : null,
   };
 
   return prisma.decisionRecord.upsert({
@@ -93,6 +99,12 @@ export async function updateDecisionRecordStatus(
 ) {
   return prisma.decisionRecord.update({
     where: { threadId },
-    data: { status },
+    data: {
+      status,
+      closedAt:
+        status === DecisionRecordStatus.RESOLVED
+          ? new Date()
+          : null,
+    },
   });
 }

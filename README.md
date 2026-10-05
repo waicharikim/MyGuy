@@ -98,7 +98,13 @@ The metrics endpoint is aggregate-only. Its successful-action rate denominator i
 
 The dashboard asks for the operator token and retains it only in the current browser tab's session storage. The APIs remain token-protected; the dashboard does not embed an operator credential.
 
+Set `OPERATOR_WHATSAPP_PHONE` to the operator's WhatsApp number to receive queued human-query and escalation alerts. The worker retries delivery and retains pending notification records in PostgreSQL for recovery if Redis or WhatsApp is unavailable. Run `npm run start:worker` alongside the API. Configure the operator number to be eligible for business-initiated messages under Meta's WhatsApp rules; failed sends remain pending and are retried.
+
 The closing pass requires a validated recommendation contract: a recommendation and bounded confidence estimate are stored together, with assumptions, unresolved risks, and unanswered material questions kept distinct. If the agent cannot justify a recommendation, both recommendation and confidence are left unset; invalid or contradictory model output fails instead of being replaced with synthetic defaults.
+
+Decision records retain `recommendedAt` and `closedAt`; closure is recorded only after explicit user confirmation. The operator metrics include recommendation/evidence coverage, confirmed closure among records with recommendations, low-confidence recommendation counts (<50%, descriptive only), time to recommendation/resolution, stale open decisions, operator handoff response/resolution rates, and a returning-user proxy (at least two inbound WhatsApp message-days among users with any inbound WhatsApp message). Operator-query response rate uses all operator queries (open, answered, or cancelled) as its denominator. Rates are null when their denominator is zero.
+
+Agent interactions are scoped to the requester's own thread and require an explicit responder capability and permission grant. An answer must name the interaction's addressed responder; request and response messages are auditable and a request cannot be answered twice. Cross-user sharing still requires an explicit permission and should be limited to the requested payload. This protocol foundation is not yet exposed through an externally authenticated agent-network gateway.
 
 An inbound reply to an outcome follow-up is intercepted before intent routing and the decision graph. It is stored with an acknowledgement and completes that turn. If multiple follow-ups are pending, Shauri asks the user to select the relevant matter before recording the outcome.
 

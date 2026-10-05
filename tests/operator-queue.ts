@@ -1,8 +1,12 @@
 import "dotenv/config";
 
+import { Queue } from "bullmq";
 import { HumanController } from "../src/human.controller";
 import { prisma } from "../src/infrastructure/prisma";
 import { createHumanQuery } from "../src/agent/human-query";
+import { notifyEscalation } from "../src/agent/escalation";
+import { OPERATOR_NOTIFICATION_QUEUE } from "../src/agent/operator-notification";
+import { deliverOperatorNotification } from "../src/agent/operator-notification-delivery";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -11,6 +15,28 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 async function cleanup(userId: string) {
+  const notifications = await prisma.operatorNotification.findMany({
+    where: {
+      OR: [
+        { humanQuery: { userId } },
+        { escalation: { userId } },
+      ],
+    },
+    select: { id: true },
+  });
+  const queue = new Queue(OPERATOR_NOTIFICATION_QUEUE, {
+    connection: {
+      host: process.env.REDIS_HOST,
+      port: Number(process.env.REDIS_PORT || 6379),
+    },
+  });
+  try {
+    for (const notification of notifications) {
+      await (await queue.getJob(notification.id))?.remove();
+    }
+  } finally {
+    await queue.close();
+  }
   await prisma.escalationMessage.deleteMany({
     where: { escalation: { userId } },
   });
@@ -31,6 +57,7 @@ async function cleanup(userId: string) {
 async function main() {
   let userId: string | undefined;
   const previousToken = process.env.INTERNAL_OPERATOR_TOKEN;
+  const previousOperatorPhone = process.env.OPERATOR_WHATSAPP_PHONE;
 
   try {
     const user = await prisma.user.create({
@@ -121,18 +148,17 @@ async function main() {
       },
     });
 
-    await prisma.escalation.create({
-      data: {
-        userId,
-        threadId: escalationThread.id,
-        reason: "The issue requires account-level access.",
-        messages: {
-          create: {
-            direction: "SYSTEM",
-            content: "The issue requires account-level access.",
-          },
-        },
-      },
+    const escalation = await notifyEscalation({
+      threadId: escalationThread.id,
+      userId,
+      userPhone: user.phone,
+      reason: "The issue requires account-level access.",
+    });
+    await notifyEscalation({
+      threadId: escalationThread.id,
+      userId,
+      userPhone: user.phone,
+      reason: "The issue requires account-level access.",
     });
 
     const controller = new HumanController();
@@ -164,6 +190,56 @@ async function main() {
     assert(queue.escalations.length === 1, "Queue should contain the open escalation.");
 
     const humanQuery = queue.humanQueries[0];
+    assert(
+      humanQuery.operatorNotification !== null &&
+        humanQuery.operatorNotification.sentAt === null,
+      "Operator human queries should have durable pending WhatsApp notifications.",
+    );
+    process.env.OPERATOR_WHATSAPP_PHONE = "+254700000000";
+    const notificationId = humanQuery.operatorNotification.id;
+    let failedDelivery = false;
+    try {
+      await deliverOperatorNotification(notificationId, async () => {
+        throw new Error("temporary delivery failure");
+      });
+    } catch {
+      failedDelivery = true;
+    }
+    assert(failedDelivery, "WhatsApp delivery failures must remain visible to the retry path.");
+    const failedNotification = await prisma.operatorNotification.findUniqueOrThrow({
+      where: { id: notificationId },
+    });
+    assert(
+      failedNotification.attempts === 1 &&
+        failedNotification.lastError?.includes("temporary delivery failure") === true &&
+        failedNotification.nextAttemptAt > new Date(),
+      "Failed notification attempts and retry time must persist.",
+    );
+    let deliveredPhone = "";
+    let deliveredMessage = "";
+    await deliverOperatorNotification(notificationId, async (phone, message) => {
+      deliveredPhone = phone;
+      deliveredMessage = message;
+    });
+    assert(
+      deliveredPhone === process.env.OPERATOR_WHATSAPP_PHONE &&
+        deliveredMessage.includes("confirm the start date"),
+      "The retry must send the operator the human-query handoff.",
+    );
+    const deliveredNotification = await prisma.operatorNotification.findUniqueOrThrow({
+      where: { id: notificationId },
+    });
+    assert(
+      deliveredNotification.sentAt instanceof Date &&
+        deliveredNotification.lastError === null &&
+        deliveredNotification.attempts === 2,
+      "Successful delivery must be durably recorded and stop retries.",
+    );
+    let duplicateSendAttempted = false;
+    await deliverOperatorNotification(notificationId, async () => {
+      duplicateSendAttempted = true;
+    });
+    assert(!duplicateSendAttempted, "A sent notification must not be sent again.");
     assert(humanQuery.question.includes("confirm the start date"), "Question should be present.");
     assert(humanQuery.reason.includes("controlled by the employer"), "Handoff reason should be present.");
     assert(humanQuery.thread.known.includes("The user has received a job offer."), "Known facts should be included.");
@@ -174,9 +250,15 @@ async function main() {
     assert(humanQuery.thread.decisionRecords[0].unresolvedQuestions.includes("When does the role begin?"), "Decision open questions should be included.");
     assert(humanQuery.thread.groundingEvidence[0].sourceUrl === "https://example.test/job-offer", "Grounding provenance should be included.");
 
-    const escalation = queue.escalations[0];
-    assert(escalation.reason.includes("account-level access"), "Escalation reason should be included.");
-    assert(escalation.thread.decisionRecords[0].status === "ESCALATED", "Escalation decision record should be included.");
+    const queuedEscalation = queue.escalations[0];
+    assert(queuedEscalation.id === escalation.id, "Escalation should be idempotent for an open thread.");
+    assert(queuedEscalation.reason.includes("account-level access"), "Escalation reason should be included.");
+    assert(queuedEscalation.thread.decisionRecords[0].status === "ESCALATED", "Escalation decision record should be included.");
+    assert(
+      queuedEscalation.operatorNotification !== null &&
+        queuedEscalation.operatorNotification.sentAt === null,
+      "Escalations should have durable pending WhatsApp notifications.",
+    );
 
     console.log("✓ operator queue requires the configured token");
     console.log("✓ open operator queries include decision and user context");
@@ -187,6 +269,11 @@ async function main() {
       delete process.env.INTERNAL_OPERATOR_TOKEN;
     } else {
       process.env.INTERNAL_OPERATOR_TOKEN = previousToken;
+    }
+    if (previousOperatorPhone === undefined) {
+      delete process.env.OPERATOR_WHATSAPP_PHONE;
+    } else {
+      process.env.OPERATOR_WHATSAPP_PHONE = previousOperatorPhone;
     }
     if (userId) {
       await cleanup(userId);

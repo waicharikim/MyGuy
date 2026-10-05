@@ -83,6 +83,8 @@ Implemented:
 
 The operator endpoints are protected by `INTERNAL_OPERATOR_TOKEN`.
 
+Operator-channel human queries and escalations create durable PostgreSQL notification records and enqueue WhatsApp alerts to `OPERATOR_WHATSAPP_PHONE`. The worker retries delivery and scans pending records after restart or queue outages. Live WhatsApp delivery still requires valid credentials and a recipient eligible to receive business-initiated messages.
+
 ## 9. Follow-up reliability
 
 Implemented:
@@ -112,9 +114,13 @@ Still requires a real Daraja sandbox verification before production use.
 
 ## 12. Agent network
 
-The persistence model and permission-checked interaction service now exist. This is intentionally a protocol foundation rather than an autonomous multi-agent swarm.
+The persistence model and permission-checked interaction service now exist. Agents can be associated with a user, interactions cannot attach a thread outside the requester's ownership, answers must identify the addressed responder, and request/response messages are retained. A controlled two-agent integration test covers explicit grants and denied cross-user thread context. This is intentionally a protocol foundation rather than an autonomous multi-agent swarm; an externally authenticated agent-network gateway is still future work.
 
-## 13. What remains environment-dependent
+## 13. Product quality metrics
+
+The operator metrics report all-time recommendation and evidence coverage, recommendation-confirmation rate (resolved matters with recommendations divided by matters with recommendations), low-confidence recommendation count (<50%), average recommendation/resolution time, decisions open or awaiting a human for more than seven days, operator-query response rate (answered divided by all operator queries), escalation resolution rate, and returning-user proxy (users with inbound WhatsApp messages on at least two distinct days, divided by users with any inbound WhatsApp message). The endpoint preserves outcome metrics and returns null for ratios/timing without a denominator. These are operational indicators; they do not establish recommendation quality or calibrated confidence.
+
+## 14. What remains environment-dependent
 
 These cannot be honestly marked as production-verified inside this environment:
 
@@ -125,9 +131,25 @@ These cannot be honestly marked as production-verified inside this environment:
 - real Safaricom Daraja callbacks/STK prompts
 - PostgreSQL/Redis integration tests
 - LangSmith traces against a live account
+- end-to-end delivery and retry behavior for operator WhatsApp notifications against a live Meta account
+- confidence calibration and product-quality targets measured with consented real-user pilot outcomes
 
 The code is designed for these integrations, but credentials and external services are required for live verification.
 
+### Live verification and pilot checklist
+
+Run this checklist in staging with test accounts and record pass/fail, environment, timestamp, and sanitized evidence. Never put credentials or personal user content in the evidence.
+
+1. **WhatsApp ingress/egress:** verify the Meta challenge, a valid signature, rejection of an invalid signature, duplicate external message suppression, outbound delivery, and operator notification to `OPERATOR_WHATSAPP_PHONE`. Force a temporary send failure, confirm retries/outbox state, then confirm recovery. Ensure the operator number is eligible for the message under Meta's current template/session rules.
+2. **LLM provider:** run representative Intake, Skeptic, Ground, and Close calls; verify structured output, invalid-output rejection, and human-query fallback without leaking secrets or user data into logs.
+3. **Tavily:** verify a real query, persisted source URL/title/finding, and the no-usable-evidence fallback to a human query.
+4. **PostgreSQL and Redis:** verify worker start/restart, delayed follow-up execution, duplicate job handling, transient database/Redis failures, and outbox recovery without duplicated business actions.
+5. **M-Pesa sandbox:** verify STK initiation and callback success/failure, then replay an identical callback and confirm no duplicate payment or user-visible effect.
+6. **LangSmith:** verify a sanitized trace contains the graph run and relevant tool/human transitions; confirm tracing can be disabled and failures are observable.
+7. **Consent-based pilot:** use a small opt-in cohort with human oversight. Review decision completion/abandonment, recommendation and evidence coverage, handoff wait/response, user return, user-reported outcomes, and low-confidence cases. Treat the confidence value as support-strength, not a probability of success; compare it with independent reviewer assessments before proposing any calibration or launch threshold.
+
+No arbitrary product pass threshold is encoded. Agree thresholds with product owners after a baseline pilot; the dashboard currently reports descriptive measures, not a launch decision.
+
 ## Database migration note
 
-The Prisma schema is the source of truth. The supplied migration directory is intentionally a fresh-database foundation marker rather than a destructive data-conversion migration. For an existing development database, run `npx prisma migrate dev` and review Prisma's generated migration before applying it. Do not apply a blind enum/string conversion to production data.
+The Prisma schema is the source of truth. The changes in this revision include additive migrations for recommendation/closure timestamps, user ownership on agents, operator notification outbox records, and a backfill from existing closed threads to resolved decision records. Apply the pending migrations with the normal deployment process before running the updated application.
