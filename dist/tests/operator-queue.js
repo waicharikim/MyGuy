@@ -107,7 +107,7 @@ async function main() {
                 confidence: 0.8,
             },
         });
-        await (0, human_query_1.createHumanQuery)({
+        const operatorQuery = await (0, human_query_1.createHumanQuery)({
             userId,
             threadId: queryThread.id,
             matter: "Whether to accept the job offer.",
@@ -170,13 +170,29 @@ async function main() {
         const queue = await controller.queue({
             "x-operator-token": "operator-queue-test-token",
         });
-        assert(queue.humanQueries.length === 1, "Queue should contain the open operator query.");
-        assert(queue.escalations.length === 1, "Queue should contain the open escalation.");
-        const humanQuery = queue.humanQueries[0];
+        assert(queue.humanQueries.some((item) => item.id === operatorQuery.id), "Queue should contain the open operator query.");
+        assert(queue.escalations.some((item) => item.id === escalation.id), "Queue should contain the open escalation.");
+        const humanQuery = queue.humanQueries.find((item) => item.id === operatorQuery.id);
+        assert(humanQuery, "The test operator query must be present.");
         assert(humanQuery.operatorNotification !== null &&
             humanQuery.operatorNotification.sentAt === null, "Operator human queries should have durable pending WhatsApp notifications.");
         process.env.OPERATOR_WHATSAPP_PHONE = "+254700000000";
         const notificationId = humanQuery.operatorNotification.id;
+        const recoveryQueue = new bullmq_1.Queue(operator_notification_1.OPERATOR_NOTIFICATION_QUEUE, {
+            connection: {
+                host: process.env.REDIS_HOST,
+                port: Number(process.env.REDIS_PORT || 6379),
+            },
+        });
+        try {
+            await (await recoveryQueue.getJob(notificationId))?.remove();
+            await (0, operator_notification_1.enqueuePendingOperatorNotifications)();
+            const recoveredJob = await recoveryQueue.getJob(notificationId);
+            assert(recoveredJob?.data.notificationId === notificationId, "Pending operator notifications should be re-enqueued after a queue restart.");
+        }
+        finally {
+            await recoveryQueue.close();
+        }
         let failedDelivery = false;
         try {
             await (0, operator_notification_delivery_1.deliverOperatorNotification)(notificationId, async () => {
@@ -221,7 +237,8 @@ async function main() {
         assert(humanQuery.thread.decisionRecords[0].recommendedOption?.includes("Wait for confirmation") === true, "Decision recommendation should be included.");
         assert(humanQuery.thread.decisionRecords[0].unresolvedQuestions.includes("When does the role begin?"), "Decision open questions should be included.");
         assert(humanQuery.thread.groundingEvidence[0].sourceUrl === "https://example.test/job-offer", "Grounding provenance should be included.");
-        const queuedEscalation = queue.escalations[0];
+        const queuedEscalation = queue.escalations.find((item) => item.id === escalation.id);
+        assert(queuedEscalation, "The test escalation must be present.");
         assert(queuedEscalation.id === escalation.id, "Escalation should be idempotent for an open thread.");
         assert(queuedEscalation.reason.includes("account-level access"), "Escalation reason should be included.");
         assert(queuedEscalation.thread.decisionRecords[0].status === "ESCALATED", "Escalation decision record should be included.");
