@@ -67,6 +67,7 @@ import { DecisionRecordStatus } from "@prisma/client";
 import { getChatModel } from "./model";
 import { prisma } from "../infrastructure/prisma";
 import { threadState } from "../domain/thread";
+import { formatDecisionReply } from "./decision-messaging";
 
 import { createTask } from "../tools/create_task";
 import { scheduleFollowup } from "../tools/schedule_followup";
@@ -75,7 +76,11 @@ import {
   createHumanQuery,
   answerHumanQuery,
 } from "./human-query";
-import { upsertDecisionRecord } from "./decision-record";
+import {
+  updateDecisionRecordStatus,
+  upsertDecisionRecord,
+} from "./decision-record";
+import { captureRequestedDecisionOutcome } from "./decision-outcome";
 
 import { notifyEscalation } from "./escalation";
 
@@ -1678,9 +1683,7 @@ Rules:
       ? DecisionRecordStatus.ESCALATED
       : parsed.humanQuery
         ? DecisionRecordStatus.AWAITING_HUMAN
-        : parsed.resolved
-          ? DecisionRecordStatus.RESOLVED
-          : DecisionRecordStatus.OPEN;
+        : DecisionRecordStatus.OPEN;
 
   const humanInputs =
     state.known.filter(
@@ -2170,9 +2173,22 @@ async function closeConfirmation(
       },
     });
 
+    await updateDecisionRecordStatus(
+      threadId,
+      DecisionRecordStatus.OPEN,
+    );
+
     return {
-      reply:
+      reply: formatDecisionReply(
         "No problem. What is still open about this?",
+        {
+          status: "OPEN",
+          awaitingReply: true,
+          awaitingHuman: false,
+          awaitingSource: "USER",
+          pendingCloseConfirmation: false,
+        },
+      ),
 
       awaitingReply:
         true,
@@ -2185,14 +2201,27 @@ async function closeConfirmation(
     "CLOSE",
   );
 
+  await updateDecisionRecordStatus(
+    threadId,
+    DecisionRecordStatus.RESOLVED,
+  );
+
   await updateProfileFromThread(
     userId,
     threadId,
   );
 
   return {
-    reply:
+    reply: formatDecisionReply(
       "Closed out — the matter is marked settled.",
+      {
+        status: "CLOSED",
+        awaitingReply: false,
+        awaitingHuman: false,
+        awaitingSource: "NONE",
+        pendingCloseConfirmation: false,
+      },
+    ),
 
     awaitingReply:
       false,
@@ -2219,6 +2248,13 @@ export async function runShauriGraph(
           input.threadId,
       },
     });
+
+  if (thread.outcomeRequestedAt) {
+    await captureRequestedDecisionOutcome(
+      thread.id,
+      input.rawInput,
+    );
+  }
 
   await upsertDecisionRecord({
     userId:
@@ -2323,8 +2359,16 @@ export async function runShauriGraph(
       operatorQuery
     ) {
       return {
-        reply:
+        reply: formatDecisionReply(
           operatorQuery.question,
+          {
+            status: thread.status,
+            awaitingReply: true,
+            awaitingHuman: true,
+            awaitingSource: "OPERATOR",
+            pendingCloseConfirmation: false,
+          },
+        ),
 
         awaitingReply:
           true,
@@ -2332,8 +2376,16 @@ export async function runShauriGraph(
     }
 
     return {
-      reply:
+      reply: formatDecisionReply(
         "I'm still waiting for the human information needed to continue this matter.",
+        {
+          status: thread.status,
+          awaitingReply: true,
+          awaitingHuman: true,
+          awaitingSource: "OPERATOR",
+          pendingCloseConfirmation: false,
+        },
+      ),
 
       awaitingReply:
         true,
@@ -2421,8 +2473,16 @@ export async function runShauriGraph(
         source === "OPERATOR"
       ) {
         return {
-          reply:
+          reply: formatDecisionReply(
             q.question,
+            {
+              status: thread.status,
+              awaitingReply: true,
+              awaitingHuman: true,
+              awaitingSource: "OPERATOR",
+              pendingCloseConfirmation: false,
+            },
+          ),
 
           awaitingReply:
             true,
@@ -2670,9 +2730,19 @@ User response: ${input.rawInput}`;
   // ──────────────────────────────────────────────────────────────────────────
 
   return {
-    reply:
+    reply: formatDecisionReply(
       finalState.nextAction ||
-      "I have updated the matter. What would you like to do next?",
+        "I have updated the matter. What would you like to do next?",
+      {
+        status: finalState.status,
+        awaitingReply: Boolean(finalState.awaitingReply),
+        awaitingHuman: Boolean(finalState.awaitingHuman),
+        awaitingSource: finalState.awaitingSource,
+        pendingCloseConfirmation: Boolean(
+          finalState.pendingCloseConfirmation,
+        ),
+      },
+    ),
 
     awaitingReply:
       Boolean(

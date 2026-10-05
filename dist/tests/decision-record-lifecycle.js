@@ -88,15 +88,21 @@ async function main() {
         });
         assert(stored.decisionSummary.includes("salary clarification"), "The stored decision summary should reflect the latest state.");
         assert(stored.risks.includes("salary uncertainty"), "Risk metadata should be retained.");
+        const reopened = await (0, decision_record_1.updateDecisionRecordStatus)(thread.id, client_1.DecisionRecordStatus.OPEN);
+        assert(reopened.status === client_1.DecisionRecordStatus.OPEN, "A matter awaiting more user input must remain OPEN.");
+        const resolved = await (0, decision_record_1.updateDecisionRecordStatus)(thread.id, client_1.DecisionRecordStatus.RESOLVED);
+        assert(resolved.status === client_1.DecisionRecordStatus.RESOLVED, "Confirmed closure must mark the decision record RESOLVED.");
         console.log("✓ decision record created");
         console.log("✓ status updated");
         console.log("✓ confidence and recommendation persisted");
         console.log("✓ exactly one record per thread");
+        console.log("✓ lifecycle transitions persist OPEN and RESOLVED statuses");
     }
     finally {
         if (userId) {
             await cleanupUser(userId);
         }
+        await prisma_1.prisma.$disconnect();
     }
 }
 main()

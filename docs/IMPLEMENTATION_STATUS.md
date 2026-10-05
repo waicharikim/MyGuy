@@ -68,6 +68,9 @@ Implemented:
 - durable Human Query records
 - pause/resume state
 - operator answer endpoint
+- authenticated operator queue with decision, profile, and evidence context
+- user-reported post-follow-up outcomes, preserved for operator classification
+- authenticated outcome review and classification endpoints
 - knowledge-candidate promotion from human answers
 - durable Escalation records
 - operator resolution endpoint
@@ -82,6 +85,7 @@ Implemented:
 - processing/sent/cancelled states
 - retryable worker failures
 - maximum follow-up guardrail
+- explicit outcome request marker and idempotent outcome capture
 - actual WhatsApp delivery
 
 ## 10. Observability

@@ -229,6 +229,7 @@ The product should go beyond one-message decisions and become a learning loop.
 - did the user close the matter?
 - did they ask for help again on a related topic?
 - did the recommendation help them act?
+- what happened after the follow-up: successful, partly successful, unsuccessful, no action, or still unclear
 - did the human answer resolve the uncertainty?
 - did the matter end in escalation or closure?
 
@@ -296,6 +297,7 @@ The product should be measured on quality and usability, not only technical upti
 ### Phase 5: learning loop
 
 - track outcomes and profile evolution
+- store user outcome reports separately from operator classification
 - improve context quality over time
 - derive recurring decision patterns
 

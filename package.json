@@ -18,6 +18,8 @@
     "smoke:reset": "ts-node scripts/reset-smoke.ts",
     "test:human-authority-flow": "ts-node tests/human-authority-flow.ts",
     "test:decision-record": "ts-node tests/decision-record-lifecycle.ts",
+    "test:decision-messaging": "ts-node tests/decision-messaging.ts",
+    "test:decision-outcome": "ts-node tests/decision-outcome.ts",
     "smoke": "ts-node scripts/smoke.ts",
     "smoke:ambiguous": "ts-node scripts/smoke-ambiguous.ts",
     "smoke:human": "ts-node scripts/smoke-human-query.ts",

@@ -256,6 +256,7 @@ Create a persistent decision lifecycle with outcome tracking:
 
 - past decisions
 - key outcomes
+- user-reported results, preserved verbatim and distinguished from operator classification
 - preferences learned
 - recurring concerns
 - decision quality indicators

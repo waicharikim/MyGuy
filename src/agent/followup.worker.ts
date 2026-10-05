@@ -18,11 +18,11 @@ const worker = new Worker("shauri-followups", async job => {
     await updateProfileFromThread(thread.userId, threadId);
     return;
   }
-  const text = `Following up on: ${record.promptContext}. How did it go?`;
+  const text = `Following up on: ${record.promptContext}. How did it go? You can reply with what happened, including if you acted, it partly worked, did not work, or you decided not to proceed.`;
   await sendWhatsappMessage(thread.user.phone, text);
   await prisma.message.create({ data: { threadId, direction: "OUT", content: text, channel: "whatsapp" } });
   await prisma.$transaction([
-    prisma.thread.update({ where: { id: threadId }, data: { awaitingReply: true, currentPass: "CLOSE", followupCount: { increment: 1 } } }),
+    prisma.thread.update({ where: { id: threadId }, data: { awaitingReply: true, outcomeRequestedAt: new Date(), currentPass: "CLOSE", followupCount: { increment: 1 } } }),
     prisma.scheduledFollowup.update({ where: { id: followupId }, data: { status: "SENT", sentAt: new Date() } }),
   ]);
 }, { connection: { host: process.env.REDIS_HOST, port: Number(process.env.REDIS_PORT || 6379) } });

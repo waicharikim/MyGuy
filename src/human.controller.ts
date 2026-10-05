@@ -5,10 +5,16 @@ import {
   Param,
   Body,
   Headers,
+  BadRequestException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { DecisionOutcomeStatus } from "@prisma/client";
 import { resumeHumanQueryFromOperator } from "./agent/human-query";
 import { getOperatorQueue } from "./agent/operator-queue";
+import {
+  classifyDecisionOutcome,
+  listUnclassifiedDecisionOutcomes,
+} from "./agent/decision-outcome";
 import { prisma } from "./infrastructure/prisma";
 
 @Controller("internal/human")
@@ -28,6 +34,51 @@ export class HumanController {
   ) {
     this.auth(headers);
     return getOperatorQueue();
+  }
+
+  @Get("outcomes")
+  async outcomes(
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    this.auth(headers);
+    return listUnclassifiedDecisionOutcomes();
+  }
+
+  @Post("decisions/:threadId/outcome")
+  async classifyOutcome(
+    @Param("threadId") threadId: string,
+    @Body() body: { status?: unknown; notes?: unknown },
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    this.auth(headers);
+
+    const status = Object.values(DecisionOutcomeStatus).find(
+      (candidate) => candidate === body?.status,
+    );
+
+    if (!status) {
+      throw new BadRequestException(
+        `status must be one of: ${Object.values(DecisionOutcomeStatus).join(", ")}`,
+      );
+    }
+
+    if (
+      body?.notes !== undefined &&
+      typeof body.notes !== "string"
+    ) {
+      throw new BadRequestException("notes must be a string");
+    }
+
+    const notes =
+      typeof body?.notes === "string"
+        ? body.notes
+        : undefined;
+
+    return classifyDecisionOutcome({
+      threadId,
+      status,
+      notes,
+    });
   }
 
   @Post("queries/:id/answer")

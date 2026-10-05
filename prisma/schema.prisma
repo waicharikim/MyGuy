@@ -78,6 +78,19 @@ enum DecisionRecordStatus {
   ESCALATED
 }
 
+enum DecisionOutcomeStatus {
+  SUCCESSFUL
+  PARTIAL
+  UNSUCCESSFUL
+  NO_ACTION
+  UNCLEAR
+}
+
+enum DecisionOutcomeSource {
+  USER
+  OPERATOR
+}
+
 model User {
   id        String   @id @default(uuid())
   phone     String   @unique
@@ -116,6 +129,7 @@ model Thread {
   awaitingHuman            Boolean      @default(false)
   awaitingSource           HumanQuerySource @default(USER)
   pendingCloseConfirmation Boolean      @default(false)
+  outcomeRequestedAt       DateTime?
   followupCount            Int          @default(0)
   known                    String[]     @default([])
   open                     String[]     @default([])
@@ -159,6 +173,12 @@ model DecisionRecord {
   evidenceRefs       String[]             @default([])
   humanInputs        String[]             @default([])
   escalationReason   String?
+  outcomeStatus      DecisionOutcomeStatus?
+  outcomeNotes       String?
+  outcomeSource      DecisionOutcomeSource?
+  outcomeAt          DateTime?
+  outcomeClassificationNotes String?
+  outcomeClassifiedAt DateTime?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 

@@ -14,8 +14,10 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HumanController = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
 const human_query_1 = require("./agent/human-query");
 const operator_queue_1 = require("./agent/operator-queue");
+const decision_outcome_1 = require("./agent/decision-outcome");
 const prisma_1 = require("./infrastructure/prisma");
 let HumanController = class HumanController {
     auth(headers) {
@@ -27,6 +29,29 @@ let HumanController = class HumanController {
     async queue(headers) {
         this.auth(headers);
         return (0, operator_queue_1.getOperatorQueue)();
+    }
+    async outcomes(headers) {
+        this.auth(headers);
+        return (0, decision_outcome_1.listUnclassifiedDecisionOutcomes)();
+    }
+    async classifyOutcome(threadId, body, headers) {
+        this.auth(headers);
+        const status = Object.values(client_1.DecisionOutcomeStatus).find((candidate) => candidate === body?.status);
+        if (!status) {
+            throw new common_1.BadRequestException(`status must be one of: ${Object.values(client_1.DecisionOutcomeStatus).join(", ")}`);
+        }
+        if (body?.notes !== undefined &&
+            typeof body.notes !== "string") {
+            throw new common_1.BadRequestException("notes must be a string");
+        }
+        const notes = typeof body?.notes === "string"
+            ? body.notes
+            : undefined;
+        return (0, decision_outcome_1.classifyDecisionOutcome)({
+            threadId,
+            status,
+            notes,
+        });
     }
     async answer(id, body, headers) {
         this.auth(headers);
@@ -57,6 +82,22 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], HumanController.prototype, "queue", null);
+__decorate([
+    (0, common_1.Get)("outcomes"),
+    __param(0, (0, common_1.Headers)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], HumanController.prototype, "outcomes", null);
+__decorate([
+    (0, common_1.Post)("decisions/:threadId/outcome"),
+    __param(0, (0, common_1.Param)("threadId")),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Headers)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], HumanController.prototype, "classifyOutcome", null);
 __decorate([
     (0, common_1.Post)("queries/:id/answer"),
     __param(0, (0, common_1.Param)("id")),

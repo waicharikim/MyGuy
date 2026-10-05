@@ -63,10 +63,12 @@ const client_1 = require("@prisma/client");
 const model_1 = require("./model");
 const prisma_1 = require("../infrastructure/prisma");
 const thread_1 = require("../domain/thread");
+const decision_messaging_1 = require("./decision-messaging");
 const create_task_1 = require("../tools/create_task");
 const schedule_followup_1 = require("../tools/schedule_followup");
 const human_query_1 = require("./human-query");
 const decision_record_1 = require("./decision-record");
+const decision_outcome_1 = require("./decision-outcome");
 const escalation_1 = require("./escalation");
 const profile_1 = require("./profile");
 const human_routing_1 = require("./human-routing");
@@ -832,9 +834,7 @@ Rules:
         ? client_1.DecisionRecordStatus.ESCALATED
         : parsed.humanQuery
             ? client_1.DecisionRecordStatus.AWAITING_HUMAN
-            : parsed.resolved
-                ? client_1.DecisionRecordStatus.RESOLVED
-                : client_1.DecisionRecordStatus.OPEN;
+            : client_1.DecisionRecordStatus.OPEN;
     const humanInputs = state.known.filter((entry) => String(entry).includes("User-provided answer:") ||
         String(entry).includes("Human-provided evidence:"));
     await (0, decision_record_1.upsertDecisionRecord)({
@@ -1057,15 +1057,29 @@ async function closeConfirmation(threadId, userId, text) {
                 currentPass: "INTAKE",
             },
         });
+        await (0, decision_record_1.updateDecisionRecordStatus)(threadId, client_1.DecisionRecordStatus.OPEN);
         return {
-            reply: "No problem. What is still open about this?",
+            reply: (0, decision_messaging_1.formatDecisionReply)("No problem. What is still open about this?", {
+                status: "OPEN",
+                awaitingReply: true,
+                awaitingHuman: false,
+                awaitingSource: "USER",
+                pendingCloseConfirmation: false,
+            }),
             awaitingReply: true,
         };
     }
     await thread_1.threadState.transition(threadId, "close", "CLOSE");
+    await (0, decision_record_1.updateDecisionRecordStatus)(threadId, client_1.DecisionRecordStatus.RESOLVED);
     await (0, profile_1.updateProfileFromThread)(userId, threadId);
     return {
-        reply: "Closed out — the matter is marked settled.",
+        reply: (0, decision_messaging_1.formatDecisionReply)("Closed out — the matter is marked settled.", {
+            status: "CLOSED",
+            awaitingReply: false,
+            awaitingHuman: false,
+            awaitingSource: "NONE",
+            pendingCloseConfirmation: false,
+        }),
         awaitingReply: false,
     };
 }
@@ -1078,6 +1092,9 @@ async function runShauriGraph(input) {
             id: input.threadId,
         },
     });
+    if (thread.outcomeRequestedAt) {
+        await (0, decision_outcome_1.captureRequestedDecisionOutcome)(thread.id, input.rawInput);
+    }
     await (0, decision_record_1.upsertDecisionRecord)({
         userId: input.userId,
         threadId: input.threadId,
@@ -1140,12 +1157,24 @@ async function runShauriGraph(input) {
         });
         if (operatorQuery) {
             return {
-                reply: operatorQuery.question,
+                reply: (0, decision_messaging_1.formatDecisionReply)(operatorQuery.question, {
+                    status: thread.status,
+                    awaitingReply: true,
+                    awaitingHuman: true,
+                    awaitingSource: "OPERATOR",
+                    pendingCloseConfirmation: false,
+                }),
                 awaitingReply: true,
             };
         }
         return {
-            reply: "I'm still waiting for the human information needed to continue this matter.",
+            reply: (0, decision_messaging_1.formatDecisionReply)("I'm still waiting for the human information needed to continue this matter.", {
+                status: thread.status,
+                awaitingReply: true,
+                awaitingHuman: true,
+                awaitingSource: "OPERATOR",
+                pendingCloseConfirmation: false,
+            }),
             awaitingReply: true,
         };
     }
@@ -1208,7 +1237,13 @@ async function runShauriGraph(input) {
              */
             if (source === "OPERATOR") {
                 return {
-                    reply: q.question,
+                    reply: (0, decision_messaging_1.formatDecisionReply)(q.question, {
+                        status: thread.status,
+                        awaitingReply: true,
+                        awaitingHuman: true,
+                        awaitingSource: "OPERATOR",
+                        pendingCloseConfirmation: false,
+                    }),
                     awaitingReply: true,
                 };
             }
@@ -1354,8 +1389,14 @@ User response: ${input.rawInput}`;
     // Return user-facing result
     // ──────────────────────────────────────────────────────────────────────────
     return {
-        reply: finalState.nextAction ||
-            "I have updated the matter. What would you like to do next?",
+        reply: (0, decision_messaging_1.formatDecisionReply)(finalState.nextAction ||
+            "I have updated the matter. What would you like to do next?", {
+            status: finalState.status,
+            awaitingReply: Boolean(finalState.awaitingReply),
+            awaitingHuman: Boolean(finalState.awaitingHuman),
+            awaitingSource: finalState.awaitingSource,
+            pendingCloseConfirmation: Boolean(finalState.pendingCloseConfirmation),
+        }),
         awaitingReply: Boolean(finalState.awaitingReply ||
             finalState.awaitingHuman ||
             finalState.awaitingSource !==

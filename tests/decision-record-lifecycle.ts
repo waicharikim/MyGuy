@@ -3,7 +3,10 @@ import "dotenv/config";
 import { DecisionRecordStatus } from "@prisma/client";
 
 import { prisma } from "../src/infrastructure/prisma";
-import { upsertDecisionRecord } from "../src/agent/decision-record";
+import {
+  updateDecisionRecordStatus,
+  upsertDecisionRecord,
+} from "../src/agent/decision-record";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -139,14 +142,34 @@ async function main() {
       "Risk metadata should be retained.",
     );
 
+    const reopened = await updateDecisionRecordStatus(
+      thread.id,
+      DecisionRecordStatus.OPEN,
+    );
+    assert(
+      reopened.status === DecisionRecordStatus.OPEN,
+      "A matter awaiting more user input must remain OPEN.",
+    );
+
+    const resolved = await updateDecisionRecordStatus(
+      thread.id,
+      DecisionRecordStatus.RESOLVED,
+    );
+    assert(
+      resolved.status === DecisionRecordStatus.RESOLVED,
+      "Confirmed closure must mark the decision record RESOLVED.",
+    );
+
     console.log("✓ decision record created");
     console.log("✓ status updated");
     console.log("✓ confidence and recommendation persisted");
     console.log("✓ exactly one record per thread");
+    console.log("✓ lifecycle transitions persist OPEN and RESOLVED statuses");
   } finally {
     if (userId) {
       await cleanupUser(userId);
     }
+    await prisma.$disconnect();
   }
 }
 

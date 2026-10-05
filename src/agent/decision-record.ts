@@ -43,3 +43,13 @@ export async function upsertDecisionRecord(input: DecisionRecordInput) {
     update: payload,
   });
 }
+
+export async function updateDecisionRecordStatus(
+  threadId: string,
+  status: DecisionRecordStatus,
+) {
+  return prisma.decisionRecord.update({
+    where: { threadId },
+    data: { status },
+  });
+}

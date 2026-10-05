@@ -79,10 +79,16 @@ Configure:
 Operator endpoints are protected with `x-operator-token`:
 
 - `GET /internal/human/queue` — open operator queries and escalations with decision context
+- `GET /internal/human/outcomes` — user-reported outcomes awaiting operator classification
+- `POST /internal/human/decisions/:threadId/outcome` — classify a decision outcome
 - `POST /internal/human/queries/:id/answer`
 - `POST /internal/human/escalations/:id/resolve`
 
 The queue returns each handoff's question/reason, user contact and profile summary, known facts, outstanding questions, decision record, and available grounding evidence.
+
+Shauri replies include a concise decision status, such as waiting for user input, waiting for human verification, ready to close, referred to a human, or settled.
+
+After a scheduled follow-up, the user's response is stored verbatim as an unclassified outcome report. Operators can review reports and classify them as `SUCCESSFUL`, `PARTIAL`, `UNSUCCESSFUL`, `NO_ACTION`, or `UNCLEAR`; the original user report and operator classification notes are retained separately.
 
 ## Architecture status
 

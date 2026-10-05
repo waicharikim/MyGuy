@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.upsertDecisionRecord = upsertDecisionRecord;
+exports.updateDecisionRecordStatus = updateDecisionRecordStatus;
 const client_1 = require("@prisma/client");
 const prisma_1 = require("../infrastructure/prisma");
 async function upsertDecisionRecord(input) {
@@ -24,5 +25,11 @@ async function upsertDecisionRecord(input) {
         where: { threadId: input.threadId },
         create: payload,
         update: payload,
+    });
+}
+async function updateDecisionRecordStatus(threadId, status) {
+    return prisma_1.prisma.decisionRecord.update({
+        where: { threadId },
+        data: { status },
     });
 }
