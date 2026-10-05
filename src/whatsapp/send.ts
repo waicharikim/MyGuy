@@ -19,9 +19,7 @@ export async function sendWhatsappMessage(
         "WhatsApp is not configured; set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN",
       );
     }
-    console.warn(
-      `[whatsapp] not configured — skip send to ${toPhone}: ${text.slice(0, 120)}${text.length > 120 ? "…" : ""}`
-    );
+    console.warn("[whatsapp] not configured — outbound message skipped");
     return;
   }
 

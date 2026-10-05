@@ -227,6 +227,24 @@ async function main() {
         assert(queuedEscalation.thread.decisionRecords[0].status === "ESCALATED", "Escalation decision record should be included.");
         assert(queuedEscalation.operatorNotification !== null &&
             queuedEscalation.operatorNotification.sentAt === null, "Escalations should have durable pending WhatsApp notifications.");
+        const resolvedEscalation = await controller.resolve(escalation.id, { answer: "The account has been restored." }, { "x-operator-token": "operator-queue-test-token" });
+        assert(resolvedEscalation.status === "RESOLVED", "Operator resolution must close the escalation.");
+        const reopenedThread = await prisma_1.prisma.thread.findUniqueOrThrow({
+            where: { id: escalationThread.id },
+        });
+        assert(reopenedThread.status === "OPEN", "Resolving an escalation should return its decision thread to OPEN.");
+        const reopenedDecision = await prisma_1.prisma.decisionRecord.findUniqueOrThrow({
+            where: { threadId: escalationThread.id },
+        });
+        assert(reopenedDecision.status === "OPEN" && reopenedDecision.closedAt === null, "Resolving an escalation should reopen its decision record.");
+        let duplicateResolveRejected = false;
+        try {
+            await controller.resolve(escalation.id, { answer: "Duplicate resolution" }, { "x-operator-token": "operator-queue-test-token" });
+        }
+        catch {
+            duplicateResolveRejected = true;
+        }
+        assert(duplicateResolveRejected, "Resolved escalations must not be resolved a second time.");
         console.log("✓ operator queue requires the configured token");
         console.log("✓ open operator queries include decision and user context");
         console.log("✓ evidence provenance appears in the handoff summary");

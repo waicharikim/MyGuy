@@ -63,16 +63,19 @@ REQUIRE_PAYMENT=true
 
 ## Important production requirements
 
-Configure:
+When `NODE_ENV=production`, both the API and worker fail startup unless the required configuration is present:
 
 - `DATABASE_URL`
-- Redis
-- one LLM provider
+- `REDIS_HOST`
+- one LLM provider: `ANTHROPIC_API_KEY`, `AWS_BEDROCK_MODEL_ID`, `DASHSCOPE_API_KEY`, or `NEBIUS_API_KEY`
 - `TAVILY_API_KEY`
-- WhatsApp Cloud API credentials
-- `WHATSAPP_APP_SECRET`
-- `INTERNAL_OPERATOR_TOKEN`
-- Daraja credentials only if payments are enabled
+- WhatsApp Cloud API: `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, and `WHATSAPP_VERIFY_TOKEN`
+- `INTERNAL_OPERATOR_TOKEN` with at least 32 characters
+- `OPERATOR_WHATSAPP_PHONE`
+
+Keep secrets in the deployment secret manager; never put live values in `.env` committed to source control, logs, images, or support tickets. Terminate HTTPS at the public ingress/load balancer and do not expose the Node port directly. The app sets HSTS in production; this assumes HTTPS is correctly enforced at the edge.
+
+Build with `npm run build`, then run the API (`npm start`) and worker (`npm run start:worker:prod`) as separately supervised processes. For local development, use `npm run start:dev` and `npm run start:worker`. Apply committed Prisma migrations before deploying the new application version. Configure readiness/alerts for both processes, PostgreSQL, Redis, and outbound WhatsApp delivery. Production payment mode (`REQUIRE_PAYMENT=true`) additionally requires Daraja credentials and callback configuration, and rejects the sandbox base URL; validate live payment activation separately.
 
 ## Human operations
 

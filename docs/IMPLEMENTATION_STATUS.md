@@ -150,6 +150,14 @@ Run this checklist in staging with test accounts and record pass/fail, environme
 
 No arbitrary product pass threshold is encoded. Agree thresholds with product owners after a baseline pilot; the dashboard currently reports descriptive measures, not a launch decision.
 
+## 15. Production configuration and deployment gate
+
+At `NODE_ENV=production`, API and worker startup validate database, Redis, WhatsApp, operator notification, Tavily, and at least one model provider configuration. The internal operator token must be at least 32 characters. If payments are enabled, Daraja settings must be complete and the sandbox base URL is rejected. Configuration errors list missing variable names only, never values.
+
+The service adds anti-framing, MIME-sniffing, referrer, and browser-permission headers; authenticated operator responses use `Cache-Control: no-store`, and operator-token comparison is constant-time. Public production ingress must enforce HTTPS; the service emits HSTS but does not terminate TLS. No deployment platform or infrastructure-as-code is present in this repository, so secret-manager provisioning, network policy, TLS configuration, process supervision, and monitoring must be completed in the target hosting environment.
+
+Operator escalation resolution now reopens the thread and decision record rather than leaving a resolved handoff in an escalated state. Production acceptance still requires validating this lifecycle through the deployed API and operator workflow.
+
 ## Database migration note
 
 The Prisma schema is the source of truth. The changes in this revision include additive migrations for recommendation/closure timestamps, user ownership on agents, operator notification outbox records, and a backfill from existing closed threads to resolved decision records. Apply the pending migrations with the normal deployment process before running the updated application.

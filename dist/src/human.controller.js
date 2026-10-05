@@ -14,6 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HumanController = void 0;
 const common_1 = require("@nestjs/common");
+const node_crypto_1 = require("node:crypto");
 const client_1 = require("@prisma/client");
 const human_query_1 = require("./agent/human-query");
 const operator_queue_1 = require("./agent/operator-queue");
@@ -22,8 +23,12 @@ const prisma_1 = require("./infrastructure/prisma");
 const operator_dashboard_1 = require("./operator-dashboard");
 let HumanController = class HumanController {
     auth(headers) {
-        if (!process.env.INTERNAL_OPERATOR_TOKEN ||
-            headers["x-operator-token"] !== process.env.INTERNAL_OPERATOR_TOKEN) {
+        const expected = process.env.INTERNAL_OPERATOR_TOKEN;
+        const supplied = headers["x-operator-token"];
+        if (!expected ||
+            !supplied ||
+            Buffer.byteLength(expected) !== Buffer.byteLength(supplied) ||
+            !(0, node_crypto_1.timingSafeEqual)(Buffer.from(expected), Buffer.from(supplied))) {
             throw new common_1.UnauthorizedException();
         }
     }
@@ -67,18 +72,51 @@ let HumanController = class HumanController {
     }
     async resolve(id, body, headers) {
         this.auth(headers);
-        return prisma_1.prisma.escalation.update({
-            where: { id },
-            data: {
-                status: "RESOLVED",
-                resolvedAt: new Date(),
-                messages: {
-                    create: {
-                        direction: "IN",
-                        content: String(body.answer || "Resolved by operator"),
+        const answer = String(body.answer || "Resolved by operator").trim();
+        if (!answer) {
+            throw new common_1.BadRequestException("answer must not be empty");
+        }
+        return prisma_1.prisma.$transaction(async (tx) => {
+            const escalation = await tx.escalation.findUniqueOrThrow({
+                where: { id },
+            });
+            if (escalation.status !== "OPEN") {
+                throw new common_1.BadRequestException("Escalation is no longer open");
+            }
+            const resolved = await tx.escalation.update({
+                where: { id },
+                data: {
+                    status: "RESOLVED",
+                    resolvedAt: new Date(),
+                    messages: {
+                        create: {
+                            direction: "IN",
+                            content: answer,
+                        },
                     },
                 },
-            },
+            });
+            await tx.thread.updateMany({
+                where: { id: escalation.threadId, status: "ESCALATED" },
+                data: {
+                    status: "OPEN",
+                    closedAt: null,
+                    awaitingReply: false,
+                    awaitingHuman: false,
+                    awaitingSource: "NONE",
+                },
+            });
+            await tx.decisionRecord.updateMany({
+                where: {
+                    threadId: escalation.threadId,
+                    status: "ESCALATED",
+                },
+                data: {
+                    status: "OPEN",
+                    closedAt: null,
+                },
+            });
+            return resolved;
         });
     }
 };
@@ -93,6 +131,7 @@ __decorate([
 ], HumanController.prototype, "dashboard", null);
 __decorate([
     (0, common_1.Get)("queue"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
     __param(0, (0, common_1.Headers)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -100,6 +139,7 @@ __decorate([
 ], HumanController.prototype, "queue", null);
 __decorate([
     (0, common_1.Get)("outcomes"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
     __param(0, (0, common_1.Headers)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -107,6 +147,7 @@ __decorate([
 ], HumanController.prototype, "outcomes", null);
 __decorate([
     (0, common_1.Get)("metrics"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
     __param(0, (0, common_1.Headers)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -114,6 +155,7 @@ __decorate([
 ], HumanController.prototype, "metrics", null);
 __decorate([
     (0, common_1.Post)("decisions/:threadId/outcome"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
     __param(0, (0, common_1.Param)("threadId")),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, common_1.Headers)()),
@@ -123,6 +165,7 @@ __decorate([
 ], HumanController.prototype, "classifyOutcome", null);
 __decorate([
     (0, common_1.Post)("queries/:id/answer"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
     __param(0, (0, common_1.Param)("id")),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, common_1.Headers)()),
@@ -132,6 +175,7 @@ __decorate([
 ], HumanController.prototype, "answer", null);
 __decorate([
     (0, common_1.Post)("escalations/:id/resolve"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
     __param(0, (0, common_1.Param)("id")),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, common_1.Headers)()),
