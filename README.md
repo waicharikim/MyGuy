@@ -80,6 +80,7 @@ Operator endpoints are protected with `x-operator-token`:
 
 - `GET /internal/human/queue` — open operator queries and escalations with decision context
 - `GET /internal/human/outcomes` — user-reported outcomes awaiting operator classification
+- `GET /internal/human/metrics` — all-time decision and reviewed-outcome quality metrics
 - `POST /internal/human/decisions/:threadId/outcome` — classify a decision outcome
 - `POST /internal/human/queries/:id/answer`
 - `POST /internal/human/escalations/:id/resolve`
@@ -89,6 +90,10 @@ The queue returns each handoff's question/reason, user contact and profile summa
 Shauri replies include a concise decision status, such as waiting for user input, waiting for human verification, ready to close, referred to a human, or settled.
 
 After a scheduled follow-up, the user's response is stored verbatim as an unclassified outcome report. Operators can review reports and classify them as `SUCCESSFUL`, `PARTIAL`, `UNSUCCESSFUL`, `NO_ACTION`, or `UNCLEAR`; the original user report and operator classification notes are retained separately.
+
+The metrics endpoint is aggregate-only. Its successful-action rate denominator includes reviewed `SUCCESSFUL`, `PARTIAL`, and `UNSUCCESSFUL` outcomes; it excludes `NO_ACTION` and `UNCLEAR`. Rates are `null` when their denominator is zero.
+
+An inbound reply to an outcome follow-up is intercepted before intent routing and the decision graph. It is stored with an acknowledgement and completes that turn. If multiple follow-ups are pending, Shauri asks the user to select the relevant matter before recording the outcome.
 
 ## Architecture status
 

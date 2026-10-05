@@ -43,6 +43,10 @@ import { routeMessage } from "../agent/router";
 import { buildInjectedContext } from "../agent/context";
 
 import { initiateSTKPush } from "../tools/mpesa";
+import {
+  captureInboundDecisionOutcome,
+  resolveOutcomeSelection,
+} from "../agent/decision-outcome";
 
 type ProcessMessageResult = {
   duplicate: boolean;
@@ -59,6 +63,126 @@ export async function processMessage(
     channel: string;
   },
 ): Promise<ProcessMessageResult> {
+  if (input.externalId) {
+    const priorInbound =
+      await prisma.message.findFirst({
+        where: {
+          channel: input.channel,
+          externalId: input.externalId,
+          direction: "IN",
+        },
+        select: { threadId: true },
+      });
+
+    if (priorInbound) {
+      return {
+        duplicate: true,
+        reply: null,
+        threadId: priorInbound.threadId,
+      };
+    }
+  }
+
+  const pendingOutcomes =
+    await prisma.thread.findMany({
+      where: {
+        userId: input.userId,
+        outcomeRequestedAt: { not: null },
+      },
+      orderBy: [
+        { outcomeRequestedAt: "asc" },
+        { id: "asc" },
+      ],
+      select: {
+        id: true,
+        outcomeSelectionPending: true,
+        outcomeSelectedForReply: true,
+        decisionSummary: true,
+        known: true,
+        open: true,
+      },
+    });
+
+  const selectedOutcomes =
+    pendingOutcomes.filter(
+      (thread) => thread.outcomeSelectedForReply,
+    );
+
+  if (selectedOutcomes.length > 1) {
+    throw new Error(
+      `Multiple decision outcome threads selected for user ${input.userId}`,
+    );
+  }
+
+  if (selectedOutcomes.length === 1) {
+    return captureInboundDecisionOutcome({
+      threadId: selectedOutcomes[0].id,
+      text: input.text,
+      channel: input.channel,
+      externalId: input.externalId,
+    });
+  }
+
+  if (pendingOutcomes.length === 1) {
+    return captureInboundDecisionOutcome({
+      threadId: pendingOutcomes[0].id,
+      text: input.text,
+      channel: input.channel,
+      externalId: input.externalId,
+    });
+  }
+
+  if (pendingOutcomes.length > 1) {
+    const pendingIds = pendingOutcomes.map((thread) => thread.id);
+    const selectionInProgress =
+      pendingOutcomes.some(
+        (thread) => thread.outcomeSelectionPending,
+      );
+
+    if (selectionInProgress) {
+      const selection = await resolveOutcomeSelection({
+        userId: input.userId,
+        text: input.text,
+        pendingThreadIds: pendingIds,
+        channel: input.channel,
+        externalId: input.externalId,
+      });
+
+      if (selection) {
+        return {
+          duplicate: false,
+          reply: selection.reply,
+          threadId: selection.threadId,
+        };
+      }
+    } else {
+      await prisma.thread.updateMany({
+        where: { id: { in: pendingIds } },
+        data: { outcomeSelectionPending: true },
+      });
+    }
+
+    const choices = pendingOutcomes
+      .map((thread, index) => {
+        const matter =
+          thread.decisionSummary ||
+          [...thread.known, ...thread.open]
+            .filter(Boolean)
+            .slice(0, 3)
+            .join("; ") ||
+          "Decision matter";
+        return `${index + 1}. ${matter}`;
+      })
+      .join("\n");
+
+    return {
+      duplicate: false,
+      reply:
+        `I have follow-ups on more than one decision. Which one is this about? Reply with a number:\n${choices}`,
+      threadId: null,
+    };
+  }
+
   /*
    * ---------------------------------------------------------------
    * 1. Intent classification
@@ -311,27 +435,6 @@ export async function processMessage(
    *
    * This additional check protects the Message table itself.
    */
-
-  if (input.externalId) {
-    const duplicate =
-      await prisma.message.findFirst({
-        where: {
-          channel:
-            input.channel,
-          externalId:
-            input.externalId,
-        },
-      });
-
-    if (duplicate) {
-      return {
-        duplicate: true,
-        reply: null,
-        threadId:
-          duplicate.threadId,
-      };
-    }
-  }
 
   /*
    * ---------------------------------------------------------------

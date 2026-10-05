@@ -9,7 +9,13 @@ async function getProfileSnapshot(userId) {
     const profile = await prisma_1.prisma.userProfile.findUnique({ where: { userId } });
     if (!profile)
         return null;
-    return { summary: profile.summary, values: profile.values, recurringConcerns: profile.recurringConcerns, communicationStyle: profile.communicationStyle };
+    return {
+        summary: profile.summary,
+        values: profile.values,
+        recurringConcerns: profile.recurringConcerns,
+        communicationStyle: profile.communicationStyle,
+        pastDecisions: profile.pastDecisions.slice(-6),
+    };
 }
 async function updateProfileFromThread(userId, threadId) {
     const [thread, existing] = await Promise.all([

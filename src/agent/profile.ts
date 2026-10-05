@@ -2,12 +2,24 @@ import { prisma } from "../infrastructure/prisma";
 import { getChatModel } from "./model";
 
 const getModel = () => getChatModel(0.2);
-export interface ProfileSnapshot { summary: string; values: string[]; recurringConcerns: string[]; communicationStyle: string | null; }
+export interface ProfileSnapshot {
+  summary: string;
+  values: string[];
+  recurringConcerns: string[];
+  communicationStyle: string | null;
+  pastDecisions: unknown[];
+}
 
 export async function getProfileSnapshot(userId: string): Promise<ProfileSnapshot | null> {
   const profile = await prisma.userProfile.findUnique({ where: { userId } });
   if (!profile) return null;
-  return { summary: profile.summary, values: profile.values, recurringConcerns: profile.recurringConcerns, communicationStyle: profile.communicationStyle };
+  return {
+    summary: profile.summary,
+    values: profile.values,
+    recurringConcerns: profile.recurringConcerns,
+    communicationStyle: profile.communicationStyle,
+    pastDecisions: profile.pastDecisions.slice(-6),
+  };
 }
 
 export async function updateProfileFromThread(userId: string, threadId: string): Promise<void> {

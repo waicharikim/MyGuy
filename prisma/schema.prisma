@@ -130,6 +130,8 @@ model Thread {
   awaitingSource           HumanQuerySource @default(USER)
   pendingCloseConfirmation Boolean      @default(false)
   outcomeRequestedAt       DateTime?
+  outcomeSelectionPending Boolean      @default(false)
+  outcomeSelectedForReply Boolean      @default(false)
   followupCount            Int          @default(0)
   known                    String[]     @default([])
   open                     String[]     @default([])

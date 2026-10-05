@@ -70,7 +70,10 @@ Implemented:
 - operator answer endpoint
 - authenticated operator queue with decision, profile, and evidence context
 - user-reported post-follow-up outcomes, preserved for operator classification
+- inbound outcome replies acknowledged and short-circuited before intent routing/graph execution
+- explicit numbered matter selection when multiple outcome follow-ups are pending
 - authenticated outcome review and classification endpoints
+- aggregate decision-quality metrics endpoint with explicit denominator semantics
 - knowledge-candidate promotion from human answers
 - durable Escalation records
 - operator resolution endpoint

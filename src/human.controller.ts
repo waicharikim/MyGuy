@@ -13,6 +13,7 @@ import { resumeHumanQueryFromOperator } from "./agent/human-query";
 import { getOperatorQueue } from "./agent/operator-queue";
 import {
   classifyDecisionOutcome,
+  getDecisionQualityMetrics,
   listUnclassifiedDecisionOutcomes,
 } from "./agent/decision-outcome";
 import { prisma } from "./infrastructure/prisma";
@@ -42,6 +43,14 @@ export class HumanController {
   ) {
     this.auth(headers);
     return listUnclassifiedDecisionOutcomes();
+  }
+
+  @Get("metrics")
+  async metrics(
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    this.auth(headers);
+    return getDecisionQualityMetrics();
   }
 
   @Post("decisions/:threadId/outcome")

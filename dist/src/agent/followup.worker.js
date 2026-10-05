@@ -27,7 +27,7 @@ const worker = new bullmq_1.Worker("shauri-followups", async (job) => {
     await (0, send_1.sendWhatsappMessage)(thread.user.phone, text);
     await prisma_1.prisma.message.create({ data: { threadId, direction: "OUT", content: text, channel: "whatsapp" } });
     await prisma_1.prisma.$transaction([
-        prisma_1.prisma.thread.update({ where: { id: threadId }, data: { awaitingReply: true, outcomeRequestedAt: new Date(), currentPass: "CLOSE", followupCount: { increment: 1 } } }),
+        prisma_1.prisma.thread.update({ where: { id: threadId }, data: { awaitingReply: true, outcomeRequestedAt: new Date(), outcomeSelectionPending: false, outcomeSelectedForReply: false, currentPass: "CLOSE", followupCount: { increment: 1 } } }),
         prisma_1.prisma.scheduledFollowup.update({ where: { id: followupId }, data: { status: "SENT", sentAt: new Date() } }),
     ]);
 }, { connection: { host: process.env.REDIS_HOST, port: Number(process.env.REDIS_PORT || 6379) } });

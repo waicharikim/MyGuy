@@ -34,6 +34,10 @@ let HumanController = class HumanController {
         this.auth(headers);
         return (0, decision_outcome_1.listUnclassifiedDecisionOutcomes)();
     }
+    async metrics(headers) {
+        this.auth(headers);
+        return (0, decision_outcome_1.getDecisionQualityMetrics)();
+    }
     async classifyOutcome(threadId, body, headers) {
         this.auth(headers);
         const status = Object.values(client_1.DecisionOutcomeStatus).find((candidate) => candidate === body?.status);
@@ -89,6 +93,13 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], HumanController.prototype, "outcomes", null);
+__decorate([
+    (0, common_1.Get)("metrics"),
+    __param(0, (0, common_1.Headers)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], HumanController.prototype, "metrics", null);
 __decorate([
     (0, common_1.Post)("decisions/:threadId/outcome"),
     __param(0, (0, common_1.Param)("threadId")),
