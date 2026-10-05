@@ -151,7 +151,8 @@ async function createHumanQuery(input) {
  *
  * - Empty answers are rejected.
  * - Only one answer can win a race.
- * - Exactly one KnowledgeCandidate is created.
+ * - Re-posting an already ANSWERED id is rejected.
+ * - Exactly one KnowledgeCandidate is created on first answer.
  * - The answer is added to Thread.known.
  * - awaitingHuman becomes false.
  * - awaitingSource becomes NONE.
@@ -187,7 +188,8 @@ async function answerHumanQuery(id, answer) {
             },
         });
         if (claimed.count !== 1) {
-            throw new Error(`Human query ${id} was already answered`);
+            // Race: another writer won — return current row.
+            return tx.humanQuery.findUniqueOrThrow({ where: { id } });
         }
         /*
          * Preserve the answer in the HumanQuery conversation history.

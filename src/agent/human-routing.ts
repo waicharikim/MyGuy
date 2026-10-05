@@ -75,7 +75,7 @@ export type HumanQueryRoutingInput = {
 };
 
 export type HumanQueryRoutingResult = {
-  source: HumanQuerySource;
+  source: "USER" | "OPERATOR";
   reason: string;
   confidence: number;
 };

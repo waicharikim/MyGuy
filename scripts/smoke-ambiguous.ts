@@ -1,11 +1,11 @@
+/**
+ * Smoke: two open matters, then an ambiguous follow-up.
+ * Should clarify rather than attach to the newest thread.
+ */
+
 import "dotenv/config";
 import { handleMessage } from "../src/agent/central";
-
-// Give the model everything it needs up front so intake doesn't pause to
-// ask a clarifying question — that's what keeps the thread "awaiting" and
-// would make the router treat the next message as a continuation instead
-// of a new thread. If either turn still comes back asking a question,
-// answer it (append another handleMessage call) before moving on.
+import { prisma } from "../src/infrastructure/prisma";
 
 async function main() {
   const phone = "254700000001";
@@ -22,13 +22,22 @@ async function main() {
   );
   console.log("--- Thread B, turn 1 ---\n", t2.reply, "\n");
 
-  const ambiguous = await handleMessage(phone, "I think I'm going to go ahead with it.");
+  const ambiguous = await handleMessage(
+    phone,
+    "I think I'm going to go ahead with it."
+  );
   console.log("--- Ambiguous message ---\n", ambiguous.reply);
+
+  await prisma.$disconnect();
+  process.exit(0);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+main().catch(async (err) => {
+  console.error(err);
+  try {
+    await prisma.$disconnect();
+  } catch {
+    /* ignore */
+  }
+  process.exit(1);
+});

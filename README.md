@@ -84,3 +84,10 @@ Operator endpoints are protected with `x-operator-token`:
 ## Architecture status
 
 See `docs/IMPLEMENTATION_STATUS.md` for the documentation-to-code implementation map and the remaining environment-dependent verification.
+
+## Product documentation
+
+To close the remaining product gap and define the user-facing operating model, see:
+
+- `docs/PRODUCT_GAP_ANALYSIS.md` — product gap analysis and gap closure plan
+- `docs/PRODUCT_BLUEPRINT.md` — product blueprint, decision contract, and roadmap

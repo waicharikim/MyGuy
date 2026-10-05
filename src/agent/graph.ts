@@ -26,10 +26,10 @@
  *      → organisation/community/local/operational knowledge or
  *        information requiring an external human authority.
  *
- * EXTERNAL
+ *   EXTERNAL
  *      → externally verifiable facts. Tavily is preferred.
  *
- * SYSTEM
+ *   SYSTEM
  *      → facts already available from Shauri/application state.
  *
  * Important:
@@ -38,6 +38,20 @@
  * - human-routing.ts decides WHO should provide human information.
  * - human-query.ts owns HumanQuery persistence and lifecycle.
  * - Operator answers resume the graph through the operator endpoint.
+ *
+ * CRITICAL HUMAN-QUERY RULE:
+ *
+ * An OPERATOR-owned HumanQuery is a hard pause.
+ *
+ * An ordinary user message MUST NOT:
+ *
+ *   - answer it
+ *   - clear awaitingHuman
+ *   - clear awaitingSource
+ *   - advance currentPass
+ *   - rerun the graph
+ *
+ * The operator lifecycle owns that HumanQuery.
  */
 
 import {
@@ -48,21 +62,20 @@ import {
 } from "@langchain/langgraph";
 
 import { TavilySearchResults } from "@langchain/community/tools/tavily_search";
+import { DecisionRecordStatus } from "@prisma/client";
 
 import { getChatModel } from "./model";
 import { prisma } from "../infrastructure/prisma";
 import { threadState } from "../domain/thread";
 
-import {
-  createTask,
-} from "../tools/create_task";
-
+import { createTask } from "../tools/create_task";
 import { scheduleFollowup } from "../tools/schedule_followup";
 
 import {
   createHumanQuery,
   answerHumanQuery,
 } from "./human-query";
+import { upsertDecisionRecord } from "./decision-record";
 
 import { notifyEscalation } from "./escalation";
 
@@ -105,13 +118,6 @@ export type InformationNeed = {
   reason: string;
 };
 
-
-/**
- * Fact-type routing provides the deterministic baseline.
- *
- * human-routing.ts is then used for information that genuinely needs
- * human authority.
- */
 const informationSourceByFactType: Record<
   InformationFactType,
   InformationSource
@@ -129,15 +135,11 @@ const informationSourceByFactType: Record<
   EXTERNAL_FACT: "EXTERNAL",
 };
 
-
-/**
- * Resolve the deterministic source implied by the fact type.
- */
 function resolveInformationSource(
   need: Pick<
     InformationNeed,
     "factType" | "preferredSource"
-  >
+  >,
 ): InformationSource {
   return (
     informationSourceByFactType[need.factType] ??
@@ -145,16 +147,8 @@ function resolveInformationSource(
   );
 }
 
-
-/**
- * Determine whether this information need requires a human authority.
- *
- * SYSTEM and EXTERNAL information have their own resolution paths.
- *
- * USER and OPERATOR are routed through human-routing.ts.
- */
 function requiresHumanRouting(
-  need: InformationNeed
+  need: InformationNeed,
 ): boolean {
   const source =
     resolveInformationSource(need);
@@ -165,15 +159,6 @@ function requiresHumanRouting(
   );
 }
 
-
-/**
- * Ask the dedicated human-routing agent to determine the authoritative
- * human source.
- *
- * The fact type remains useful context.
- *
- * The router determines USER vs OPERATOR.
- */
 async function routeHumanInformationNeed(
   state: ShauriState,
   need: InformationNeed,
@@ -258,15 +243,9 @@ const ShauriAnnotation =
     awaitingReply:
       Annotation<boolean>,
 
-    /**
-     * Compatibility with persisted Thread model.
-     */
     awaitingHuman:
       Annotation<boolean>,
 
-    /**
-     * Explicit authority for the next human-provided information.
-     */
     awaitingSource:
       Annotation<
         "NONE" |
@@ -305,12 +284,6 @@ const getModel = () =>
 const getFastModel = () =>
   getChatModel(0);
 
-
-/**
- * Tavily is optional.
- *
- * If unavailable, grounding falls back to a HumanQuery.
- */
 const getTavily =
   (): TavilySearchResults | null =>
     process.env.TAVILY_API_KEY
@@ -324,9 +297,6 @@ const getTavily =
 // JSON helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Remove markdown JSON fences.
- */
 function stripFences(
   raw: unknown,
 ): string {
@@ -349,10 +319,6 @@ function stripFences(
   return s.trim();
 }
 
-
-/**
- * Defensive JSON parser.
- */
 function json<T>(
   value: unknown,
   fallback: T,
@@ -371,9 +337,6 @@ function json<T>(
 // Checkpoint
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Persist an application-level checkpoint after every pass.
- */
 async function checkpoint(
   state: ShauriState,
   pass:
@@ -405,23 +368,6 @@ async function checkpoint(
 // HumanQuery integration
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Create a HumanQuery after routing the information requirement.
- *
- * Flow:
- *
- *   graph
- *      ↓
- *   human-routing
- *      ↓
- *   USER / OPERATOR
- *      ↓
- *   human-query
- *      ↓
- *   persisted HumanQuery
- *      ↓
- *   thread pauses
- */
 async function createRoutedHumanQuery(
   state: ShauriState,
   need: InformationNeed,
@@ -490,7 +436,10 @@ async function createRoutedHumanQuery(
         need.reason ||
         "Additional human information is required.",
 
-      source,
+      source:
+        source === "OPERATOR"
+          ? "OPERATOR"
+          : "USER",
     });
 
   return {
@@ -686,11 +635,6 @@ ${JSON.stringify(profile)}
           }))
       : [];
 
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Required human information
-  // ──────────────────────────────────────────────────────────────────────────
-
   const requiredHumanNeeds =
     informationNeeds.filter(
       (need) =>
@@ -700,10 +644,6 @@ ${JSON.stringify(profile)}
         ),
     );
 
-
-  /**
-   * Lifecycle deliberately remains one-question-at-a-time.
-   */
   if (
     requiredHumanNeeds.length > 0
   ) {
@@ -718,11 +658,6 @@ ${JSON.stringify(profile)}
         state,
         first,
       );
-
-
-    // ────────────────────────────────────────────────────────────────────────
-    // USER authority
-    // ────────────────────────────────────────────────────────────────────────
 
     if (
       source === "USER"
@@ -799,11 +734,6 @@ ${JSON.stringify(profile)}
       return next;
     }
 
-
-    // ────────────────────────────────────────────────────────────────────────
-    // OPERATOR authority
-    // ────────────────────────────────────────────────────────────────────────
-
     if (
       source === "OPERATOR"
     ) {
@@ -879,11 +809,6 @@ ${JSON.stringify(profile)}
       return next;
     }
   }
-
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // No human query
-  // ──────────────────────────────────────────────────────────────────────────
 
   await prisma.thread.update({
     where: {
@@ -1100,10 +1025,6 @@ type TavilyResult = {
   content?: string;
 };
 
-
-/**
- * Normalize Tavily output.
- */
 function extractTavily(
   raw: unknown,
 ): TavilyResult[] {
@@ -1142,7 +1063,6 @@ function extractTavily(
     return [];
   }
 }
-
 
 async function ground(
   state: ShauriState,
@@ -1188,11 +1108,6 @@ If none, return [].
     )
       .filter(Boolean)
       .slice(0, 5);
-
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // No external claims
-  // ──────────────────────────────────────────────────────────────────────────
 
   if (
     !claims.length
@@ -1246,29 +1161,91 @@ If none, return [].
     return next;
   }
 
-
   const tavily =
     getTavily();
 
+  const humanEvidence =
+    state.known.filter(
+      (k) =>
+        String(k).startsWith(
+          "Human-provided evidence:",
+        ),
+    );
+
+  if (
+    humanEvidence.length > 0
+  ) {
+    await prisma.thread.update({
+      where: {
+        id:
+          state.threadId,
+      },
+
+      data: {
+        currentPass:
+          "CLOSE",
+
+        awaitingHuman:
+          false,
+
+        awaitingSource:
+          "NONE",
+      },
+    });
+
+    const next:
+      Partial<ShauriState> = {
+      ...state,
+
+      groundingClaims:
+        claims,
+
+      groundedFacts: [
+        ...state.groundedFacts,
+
+        ...humanEvidence.map(
+          (e) => String(e),
+        ),
+      ],
+
+      awaitingHuman:
+        false,
+
+      awaitingSource:
+        "NONE",
+
+      resumePass:
+        "close",
+    };
+
+    await checkpoint(
+      {
+        ...state,
+        ...next,
+      } as ShauriState,
+      "GROUND",
+    );
+
+    return next;
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
   // External grounding unavailable
-  //
-  // IMPORTANT:
-  //
-  // The graph knows that external evidence is unavailable.
-  // It therefore creates a human information requirement.
-  //
-  // human-routing.ts decides whether USER or OPERATOR is authoritative.
   // ──────────────────────────────────────────────────────────────────────────
 
   if (!tavily) {
+    const primary =
+      claims[0] ??
+      "the key external claim";
+
     const need:
       InformationNeed = {
       question:
-        `I need reliable evidence for these claims before I can close this safely: ${claims.join(
-          "; ",
-        )}.`,
+        `Can you verify this for the open matter?\n\n${primary}${
+          claims.length > 1
+            ? `\n\n(Also relevant: ${claims.slice(1, 3).join("; ")})`
+            : ""
+        }`,
 
       fact:
         claims.join("; "),
@@ -1283,7 +1260,7 @@ If none, return [].
         true,
 
       reason:
-        "External grounding is unavailable because TAVILY_API_KEY is not configured. Human fallback is required.",
+        "External grounding is unavailable (no TAVILY_API_KEY). Operator verification required.",
     };
 
     const {
@@ -1353,11 +1330,6 @@ If none, return [].
 
     return next;
   }
-
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Search each claim
-  // ──────────────────────────────────────────────────────────────────────────
 
   const evidence: Array<{
     claim: string;
@@ -1429,11 +1401,6 @@ If none, return [].
       });
     }
   }
-
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // No usable evidence
-  // ──────────────────────────────────────────────────────────────────────────
 
   if (
     !evidence.length
@@ -1529,11 +1496,6 @@ If none, return [].
     return next;
   }
 
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Persist evidence
-  // ──────────────────────────────────────────────────────────────────────────
-
   await prisma.groundingEvidence.createMany({
     data:
       evidence.map(
@@ -1617,27 +1579,29 @@ async function closePass(
         role: "system",
 
         content: `
-You are Shauri Close.
+You are Shauri Close — a calm decision coach for WhatsApp.
 
-Synthesize decision support without choosing for the user.
+Write for the user in plain language (not an operator checklist).
 
 Return ONLY JSON:
-
 {
-  "nextAction": "one concrete next step",
+  "nextAction": "2–4 short sentences the user should see",
   "escalate": false,
   "resolved": false,
   "humanQuery": false,
-  "decisionSummary": ""
+  "decisionSummary": "one line internal summary"
 }
 
-Escalate when the matter needs a human because of risk or limits.
+Rules:
 
-Set resolved only when the matter itself appears settled,
-not merely because one task is done.
-
-Set humanQuery=true when additional human information or
-human judgment is genuinely required.
+- Lines in known that start with "Human-provided evidence:" are already verified.
+- Do NOT ask to re-verify them.
+- Prefer one concrete next step.
+- Do not dump numbered investigation lists unless necessary.
+- Do not choose for the user.
+- Set humanQuery=true only if a new fact is still missing.
+- Set resolved=true only when the decision itself is settled.
+- Escalate only for serious risk or hard limits.
 `.trim(),
       },
 
@@ -1647,7 +1611,20 @@ human judgment is genuinely required.
         content:
           JSON.stringify({
             known:
-              state.known,
+              state.known.filter(
+                (k) =>
+                  !String(k).startsWith(
+                    "Human-provided evidence:",
+                  ),
+              ),
+
+            humanEvidence:
+              state.known.filter(
+                (k) =>
+                  String(k).startsWith(
+                    "Human-provided evidence:",
+                  ),
+              ),
 
             leaning:
               state.leaning,
@@ -1696,10 +1673,40 @@ human judgment is genuinely required.
       },
     );
 
+  const decisionStatus =
+    parsed.escalate
+      ? DecisionRecordStatus.ESCALATED
+      : parsed.humanQuery
+        ? DecisionRecordStatus.AWAITING_HUMAN
+        : parsed.resolved
+          ? DecisionRecordStatus.RESOLVED
+          : DecisionRecordStatus.OPEN;
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Close requests human information/judgment
-  // ──────────────────────────────────────────────────────────────────────────
+  const humanInputs =
+    state.known.filter(
+      (entry) =>
+        String(entry).includes("User-provided answer:") ||
+        String(entry).includes("Human-provided evidence:"),
+    );
+
+  await upsertDecisionRecord({
+    userId: state.userId,
+    threadId: state.threadId,
+    matter: state.known.join("; ") || state.rawInput,
+    status: decisionStatus,
+    decisionSummary: parsed.decisionSummary || parsed.nextAction || state.rawInput,
+    goal: state.rawInput,
+    recommendedOption: parsed.nextAction,
+    confidence: 0.7,
+    risks: state.skepticRisks,
+    assumptions: state.open,
+    evidenceRefs: state.groundedFacts,
+    humanInputs,
+    escalationReason:
+      parsed.escalate
+        ? parsed.nextAction
+        : null,
+  });
 
   if (
     parsed.humanQuery
@@ -1785,11 +1792,6 @@ human judgment is genuinely required.
 
     return next;
   }
-
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Escalation
-  // ──────────────────────────────────────────────────────────────────────────
 
   if (
     parsed.escalate
@@ -1880,13 +1882,6 @@ human judgment is genuinely required.
     return next;
   }
 
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Proposed resolution
-  //
-  // User must explicitly confirm closure.
-  // ──────────────────────────────────────────────────────────────────────────
-
   if (
     parsed.resolved
   ) {
@@ -1936,7 +1931,6 @@ human judgment is genuinely required.
 
       nextAction:
         `${parsed.nextAction}\n\nThis sounds settled. Should I close this matter? (yes/no)`,
-
     };
 
     await checkpoint(
@@ -1949,11 +1943,6 @@ human judgment is genuinely required.
 
     return next;
   }
-
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Ordinary next action
-  // ──────────────────────────────────────────────────────────────────────────
 
   await createTask({
     userId:
@@ -2089,12 +2078,6 @@ export function buildShauriGraph() {
     .addConditionalEdges(
       "intake",
       (s) => {
-        /**
-         * OPERATOR is authoritative.
-         *
-         * The graph must stop here.
-         * The operator endpoint will resume it later.
-         */
         if (
           s.awaitingSource ===
           "OPERATOR"
@@ -2102,9 +2085,6 @@ export function buildShauriGraph() {
           return END;
         }
 
-        /**
-         * USER clarification also pauses the graph.
-         */
         if (
           s.awaitingSource ===
             "USER" ||
@@ -2125,11 +2105,6 @@ export function buildShauriGraph() {
     .addConditionalEdges(
       "ground",
       (s) => {
-        /**
-         * Operator-owned HumanQuery.
-         *
-         * Never continue without the operator answer.
-         */
         if (
           s.awaitingSource ===
           "OPERATOR"
@@ -2137,9 +2112,6 @@ export function buildShauriGraph() {
           return END;
         }
 
-        /**
-         * Any other human wait also pauses.
-         */
         if (
           s.awaitingHuman
         ) {
@@ -2248,6 +2220,47 @@ export async function runShauriGraph(
       },
     });
 
+  await upsertDecisionRecord({
+    userId:
+      input.userId,
+    threadId:
+      input.threadId,
+    matter:
+      thread.decisionSummary ||
+      thread.known.join("; ") ||
+      input.rawInput,
+    status:
+      thread.status === "ESCALATED"
+        ? DecisionRecordStatus.ESCALATED
+        : thread.awaitingHuman
+          ? DecisionRecordStatus.AWAITING_HUMAN
+          : DecisionRecordStatus.OPEN,
+    decisionSummary:
+      thread.decisionSummary || "",
+    goal:
+      input.rawInput,
+    recommendedOption:
+      thread.decisionSummary || "",
+    confidence:
+      0,
+    risks:
+      thread.leaning ? [thread.leaning] : [],
+    assumptions:
+      thread.open,
+    evidenceRefs:
+      [],
+    humanInputs:
+      thread.known.filter(
+        (entry) =>
+          String(entry).includes("User-provided answer:") ||
+          String(entry).includes("Human-provided evidence:"),
+      ),
+    escalationReason:
+      thread.status === "ESCALATED"
+        ? thread.decisionSummary || null
+        : null,
+  });
+
 
   // ──────────────────────────────────────────────────────────────────────────
   // Explicit close confirmation
@@ -2264,23 +2277,114 @@ export async function runShauriGraph(
   }
 
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // HARD PAUSE: OPERATOR HumanQuery
+  // ──────────────────────────────────────────────────────────────────────────
+  //
+  // An operator-owned HumanQuery is a hard lifecycle boundary.
+  //
+  // A normal user message must NEVER:
+  //
+  //   - answer it
+  //   - clear awaitingHuman
+  //   - clear awaitingSource
+  //   - advance currentPass
+  //   - rerun the graph
+  //
+  // The operator endpoint must answer the HumanQuery and explicitly
+  // resume the graph.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  if (
+    thread.awaitingHuman &&
+    thread.awaitingSource ===
+      "OPERATOR"
+  ) {
+    const operatorQuery =
+      await prisma.humanQuery.findFirst({
+        where: {
+          threadId:
+            thread.id,
+
+          status:
+            "OPEN",
+
+          source:
+            "OPERATOR",
+        },
+
+        orderBy: {
+          createdAt:
+            "desc",
+        },
+      });
+
+    if (
+      operatorQuery
+    ) {
+      return {
+        reply:
+          operatorQuery.question,
+
+        awaitingReply:
+          true,
+      };
+    }
+
+    return {
+      reply:
+        "I'm still waiting for the human information needed to continue this matter.",
+
+      awaitingReply:
+        true,
+    };
+  }
+
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // USER HumanQuery handling
+  // ──────────────────────────────────────────────────────────────────────────
+  //
+  // IMPORTANT FIX:
+  //
+  // We preserve the pass that created the HumanQuery.
+  //
+  // Previously this code always did:
+  //
+  //   currentPass = "INTAKE"
+  //
+  // That is incorrect when the question originated from GROUND
+  // or CLOSE.
+  //
+  // Example:
+  //
+  //   GROUND
+  //      ↓
+  //   "What is the salary?"
+  //      ↓
+  //   user answers
+  //      ↓
+  //   must resume GROUND
+  //
+  // not:
+  //
+  //   user answers
+  //      ↓
+  //   restart INTAKE
+  //
+  // We therefore capture the persisted pass BEFORE clearing the
+  // HumanQuery state.
+  // ──────────────────────────────────────────────────────────────────────────
+
   let rawInput =
     input.rawInput;
 
   let known =
     thread.known;
 
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // HumanQuery handling
-  //
-  // USER:
-  //   inbound WhatsApp message can answer it.
-  //
-  // OPERATOR:
-  //   inbound WhatsApp message must NOT answer it.
-  //   Operator endpoint owns the answer.
-  // ──────────────────────────────────────────────────────────────────────────
+  let resumePassFromHumanQuery:
+    ShauriState["resumePass"] | null =
+    null;
 
   if (
     thread.awaitingHuman
@@ -2302,83 +2406,122 @@ export async function runShauriGraph(
       });
 
     if (q) {
-      /**
-       * HumanQuery.source is authoritative.
-       */
       const source =
         q.source === "OPERATOR"
           ? "OPERATOR"
           : "USER";
 
-
-      // ──────────────────────────────────────────────────────────────────────
-      // USER-owned HumanQuery
-      // ──────────────────────────────────────────────────────────────────────
-
+      /**
+       * Defensive operator guard.
+       *
+       * This should normally have been caught by the hard pause
+       * above, but keep the protection here as a second boundary.
+       */
       if (
-        source === "USER"
+        source === "OPERATOR"
       ) {
-        await answerHumanQuery(
-          q.id,
-          input.rawInput,
-        );
+        return {
+          reply:
+            q.question,
 
-        known = [
-          ...thread.known,
-
-          `User-provided answer: ${input.rawInput}`,
-        ];
-
-        await prisma.thread.update({
-          where: {
-            id:
-              thread.id,
-          },
-
-          data: {
-            awaitingHuman:
-              false,
-
-            awaitingReply:
-              false,
-
-            awaitingSource:
-              "NONE",
-
-            currentPass:
-              "INTAKE",
-
-            known,
-          },
-        });
+          awaitingReply:
+            true,
+        };
       }
 
+      /*
+       * Capture the pass BEFORE mutating the thread.
+       */
+      const persistedPass =
+        thread.currentPass.toLowerCase();
 
-      // ──────────────────────────────────────────────────────────────────────
-      // OPERATOR-owned HumanQuery
-      // ──────────────────────────────────────────────────────────────────────
-      //
-      // IMPORTANT:
-      //
-      // We deliberately do NOTHING here.
-      //
-      // The incoming user message does not answer the operator query.
-      //
-      // The operator endpoint:
-      //
-      //   resumeHumanQueryFromOperator(...)
-      //
-      // owns that lifecycle.
-      //
-      // This prevents a normal user WhatsApp message from accidentally
-      // satisfying an operator-authoritative query.
-      //
+      const validPasses:
+        ShauriState["resumePass"][] = [
+        "intake",
+        "skeptic",
+        "ground",
+        "close",
+      ];
+
+      if (
+        validPasses.includes(
+          persistedPass as ShauriState["resumePass"],
+        )
+      ) {
+        resumePassFromHumanQuery =
+          persistedPass as ShauriState["resumePass"];
+      } else {
+        resumePassFromHumanQuery =
+          "intake";
+      }
+
+      /*
+       * The user's message answers the open HumanQuery.
+       *
+       * answerHumanQuery owns the HumanQuery lifecycle.
+       */
+      await answerHumanQuery(
+        q.id,
+        input.rawInput,
+      );
+
+      /*
+       * Preserve the answer in the thread's durable knowledge.
+       *
+       * This is intentionally different from rawInput:
+       *
+       * rawInput = the current WhatsApp message
+       * known    = durable information discovered throughout the matter
+       */
+      known = [
+        ...thread.known,
+
+        `User-provided answer: ${input.rawInput}`,
+      ];
+
+      await prisma.thread.update({
+        where: {
+          id:
+            thread.id,
+        },
+
+        data: {
+          awaitingHuman:
+            false,
+
+          awaitingReply:
+            false,
+
+          awaitingSource:
+            "NONE",
+
+          /*
+           * Resume the pass that originally asked the question.
+           */
+          currentPass:
+            resumePassFromHumanQuery ===
+            "intake"
+              ? "INTAKE"
+              : resumePassFromHumanQuery ===
+                "skeptic"
+              ? "SKEPTIC"
+              : resumePassFromHumanQuery ===
+                "ground"
+              ? "GROUND"
+              : "CLOSE",
+
+          known,
+        },
+      });
     }
   }
 
 
   // ──────────────────────────────────────────────────────────────────────────
   // Rehydrate an in-progress USER clarification
+  // ──────────────────────────────────────────────────────────────────────────
+  //
+  // This applies to the ordinary "awaitingReply" flow, not a HumanQuery.
   // ──────────────────────────────────────────────────────────────────────────
 
   if (
@@ -2398,6 +2541,35 @@ User response: ${input.rawInput}`;
 
   // ──────────────────────────────────────────────────────────────────────────
   // Build graph state
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const validPasses:
+    ShauriState["resumePass"][] = [
+    "intake",
+    "skeptic",
+    "ground",
+    "close",
+  ];
+
+  /*
+   * If a USER HumanQuery was just answered, use the captured pass.
+   *
+   * Otherwise derive the resume point from persisted thread state.
+   */
+  const persistedPass =
+    resumePassFromHumanQuery ??
+    thread.currentPass.toLowerCase();
+
+  const resumePass =
+    validPasses.includes(
+      persistedPass as ShauriState["resumePass"],
+    )
+      ? persistedPass as ShauriState["resumePass"]
+      : "intake";
+
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Build state
   // ──────────────────────────────────────────────────────────────────────────
 
   const state:
@@ -2454,10 +2626,7 @@ User response: ${input.rawInput}`;
     injectedContext:
       input.injectedContext,
 
-    resumePass:
-      thread.currentPass
-        .toLowerCase() as
-        ShauriState["resumePass"],
+    resumePass,
   };
 
 

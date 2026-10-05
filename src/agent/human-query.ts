@@ -1,4 +1,3 @@
-
 /**
  * Human Query Lifecycle
  * ---------------------
@@ -49,7 +48,6 @@ import { HumanQuerySource } from "@prisma/client";
 
 import { prisma } from "../infrastructure/prisma";
 import { threadState } from "../domain/thread";
-import { sendWhatsappMessage } from "../whatsapp/send";
 
 export type HumanQuerySourceInput = "USER" | "OPERATOR";
 
@@ -194,7 +192,8 @@ export async function createHumanQuery(
  *
  * - Empty answers are rejected.
  * - Only one answer can win a race.
- * - Exactly one KnowledgeCandidate is created.
+ * - Re-posting an already ANSWERED id is rejected.
+ * - Exactly one KnowledgeCandidate is created on first answer.
  * - The answer is added to Thread.known.
  * - awaitingHuman becomes false.
  * - awaitingSource becomes NONE.
@@ -240,9 +239,8 @@ export async function answerHumanQuery(
     });
 
     if (claimed.count !== 1) {
-      throw new Error(
-        `Human query ${id} was already answered`,
-      );
+      // Race: another writer won — return current row.
+      return tx.humanQuery.findUniqueOrThrow({ where: { id } });
     }
 
     /*
