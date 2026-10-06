@@ -4,6 +4,7 @@ import { MpesaCallbackController } from "./payments/mpesa-callback.controller";
 import { HumanController } from "./human.controller";
 import { HealthController } from "./health.controller";
 import { TelegramWebhookController } from "./telegram/telegram-webhook.controller";
+import { PaController } from "./pa/pa.controller";
 
 @Module({
   controllers: [
@@ -12,6 +13,7 @@ import { TelegramWebhookController } from "./telegram/telegram-webhook.controlle
     HumanController,
     HealthController,
     TelegramWebhookController,
+    PaController,
   ],
 })
 export class AppModule {}

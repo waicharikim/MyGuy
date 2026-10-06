@@ -14,6 +14,8 @@ function validateProductionEnvironment(env) {
         "WHATSAPP_TOKEN",
         "WHATSAPP_APP_SECRET",
         "WHATSAPP_VERIFY_TOKEN",
+        "PA_SESSION_SECRET",
+        "PA_ALLOWED_ORIGINS",
     ];
     const missing = required.filter((name) => !env[name]?.trim());
     const hasTelegramOperatorSetup = Boolean(env.TELEGRAM_BOT_TOKEN?.trim()) &&
@@ -64,6 +66,26 @@ function validateProductionEnvironment(env) {
     }
     if ((env.INTERNAL_OPERATOR_TOKEN?.trim().length ?? 0) < 32) {
         missing.push("INTERNAL_OPERATOR_TOKEN (at least 32 characters)");
+    }
+    if ((env.PA_SESSION_SECRET?.trim().length ?? 0) < 32) {
+        missing.push("PA_SESSION_SECRET (at least 32 characters)");
+    }
+    if (env.PA_ALLOWED_ORIGINS?.trim()) {
+        const origins = env.PA_ALLOWED_ORIGINS.split(",").map((origin) => origin.trim());
+        if (origins.some((origin) => {
+            try {
+                const url = new URL(origin);
+                return (url.protocol !== "https:" ||
+                    url.origin !== origin ||
+                    url.username !== "" ||
+                    url.password !== "");
+            }
+            catch {
+                return true;
+            }
+        })) {
+            missing.push("PA_ALLOWED_ORIGINS (comma-separated HTTPS origins without paths)");
+        }
     }
     if (env.REQUIRE_PAYMENT === "true") {
         for (const name of [

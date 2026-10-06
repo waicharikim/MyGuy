@@ -164,12 +164,28 @@ No arbitrary product pass threshold is encoded. Agree thresholds with product ow
 
 ## 15. Production configuration and deployment gate
 
-At `NODE_ENV=production`, API and worker startup validate database, Redis, WhatsApp, operator notification channel, Tavily, and at least one model provider configuration. A WhatsApp operator number or Telegram operator setup is required; the internal operator token must be at least 32 characters. If payments are enabled, Daraja settings must be complete and the sandbox base URL is rejected. Configuration errors list missing variable names only, never values.
+At `NODE_ENV=production`, API and worker startup validate database, Redis, WhatsApp, operator notification channel, Tavily, PA browser-linking secrets/origins, and at least one model provider configuration. A WhatsApp operator number or Telegram operator setup is required; the internal operator token and PA session secret must each be at least 32 characters. If payments are enabled, Daraja settings must be complete and the sandbox base URL is rejected. Configuration errors list missing variable names only, never values.
 
 The service adds anti-framing, MIME-sniffing, referrer, and browser-permission headers; authenticated operator responses use `Cache-Control: no-store`, and operator-token comparison is constant-time. Public production ingress must enforce HTTPS; the service emits HSTS but does not terminate TLS. No deployment platform or infrastructure-as-code is present in this repository, so secret-manager provisioning, network policy, TLS configuration, process supervision, and monitoring must be completed in the target hosting environment.
 
 Operator escalation resolution now sends the user-facing resolution message before marking the case resolved, records separate internal and outbound activity, and reopens the thread/decision record. A failed send leaves the escalation open. Production acceptance still requires validating this lifecycle through the deployed API and operator workflow.
 
+## 16. PA web app integration
+
+Implemented:
+- imported the existing PA Vite/React PWA into `apps/pa/` without replacing Shauri or removing PA screens
+- linked a PA browser session to a phone-backed Shauri user through a one-time WhatsApp command
+- stores only HMAC hashes of link codes and opaque browser session tokens; browser authentication uses HTTP-only, same-site cookies
+- exposes origin-checked, rate-limited PA link/session/chat endpoints
+- routes assistant messages through Shauri's existing inbound orchestration, thread resolver, persistence, decision graph and tools
+- returns an authenticated user's latest thread transcript to the PA assistant so saved decisions and later operator replies can be refreshed
+- keeps PA's local task, note, calendar, finance, health and other workspace data separate; no PA-local profile data is sent to Shauri
+- uses the Vite dev proxy for `/api/pa`; production requires an HTTPS same-origin reverse proxy/static hosting configuration
+
+Run `npm ci --prefix apps/pa` and `npm run pa:dev` for the web app. Use `npm run pa:build` for its independent production build. Account linking requires `PA_SESSION_SECRET` (at least 32 characters) and, in production, exact HTTPS `PA_ALLOWED_ORIGINS`. The additive `20261006120000_pa_web_link` migration creates link challenges and web sessions.
+
+The PA integration is not a synchronization layer for PA's local data. Human follow-ups continue through the linked user's active WhatsApp or Telegram channel; the PA transcript refreshes while the relevant decision is open in the web app. Verify the full linking, browser-cookie, graph, and cross-channel operator-resume lifecycle in configured staging before production.
+
 ## Database migration note
 
-The Prisma schema is the source of truth. The recent channel changes include additive migrations for Telegram channel identities and Telegram operator pairing, in addition to earlier migrations for recommendation/closure timestamps, user ownership on agents, operator notification outbox records, and a backfill from existing closed threads to resolved decision records. Apply all pending migrations with the normal deployment process before running the updated application.
+The Prisma schema is the source of truth. Recent additive migrations include Telegram channel identities, Telegram operator pairing, and PA browser linking/sessions, in addition to earlier migrations for recommendation/closure timestamps, user ownership on agents, operator notification outbox records, and a backfill from existing closed threads to resolved decision records. Apply all pending migrations with the normal deployment process before running the updated application.

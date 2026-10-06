@@ -13,6 +13,7 @@ const mpesa_callback_controller_1 = require("./payments/mpesa-callback.controlle
 const human_controller_1 = require("./human.controller");
 const health_controller_1 = require("./health.controller");
 const telegram_webhook_controller_1 = require("./telegram/telegram-webhook.controller");
+const pa_controller_1 = require("./pa/pa.controller");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -24,6 +25,7 @@ exports.AppModule = AppModule = __decorate([
             human_controller_1.HumanController,
             health_controller_1.HealthController,
             telegram_webhook_controller_1.TelegramWebhookController,
+            pa_controller_1.PaController,
         ],
     })
 ], AppModule);

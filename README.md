@@ -5,9 +5,9 @@ Shauri is a persistent decision-support engine. It is not a generic chatbot and 
 ## Runtime architecture
 
 ```text
-WhatsApp / Telegram private chat
+PA web app / WhatsApp / Telegram private chat
   -> channel-specific verification and identity
-  -> inbound BullMQ queue
+  -> authenticated PA API or inbound BullMQ queue
   -> idempotent message processing
   -> thread resolver
   -> intent router
@@ -21,6 +21,12 @@ WhatsApp / Telegram private chat
   -> task/follow-up/human tools
   -> reply through the user's active channel
 ```
+
+PA is maintained under `apps/pa/` in this repository. Its existing personal
+workspace remains intact; the assistant now sends decision conversations to
+Shauri through an authenticated API after the user links their WhatsApp
+account. PA's local tasks, notes, finance, health, and calendar data are not
+sent to Shauri.
 
 ## Stack
 
@@ -50,6 +56,55 @@ Run workers separately:
 npm run start:worker
 ```
 
+### One-command local startup and shutdown
+
+Source the helper in a Bash terminal, then use its lifecycle functions:
+
+```bash
+source /home/mzizi/YourGuy/shauri/dev.sh
+shauri_setup
+shauri_configure_whatsapp
+shauri_up
+shauri_status
+shauri_logs api
+shauri_down
+```
+
+`shauri_up` checks local configuration/dependencies, generates a random
+`PA_SESSION_SECRET` if it is missing (without printing it), applies pending
+database migrations, builds Shauri, then starts the API, worker and PA
+development server. It waits for the API readiness and PA HTTP health checks.
+`shauri_down` sends `SIGTERM` to the process groups it started, waits for a
+graceful exit, and only sends `SIGKILL` after the configured timeout. Logs and
+PID state are written under ignored `.local/`. A server already running
+outside the helper is detected and never killed or replaced.
+
+Pressing `Ctrl+C` in the shell where the helper was sourced does not stop the
+services; use `shauri_down`. Optional variables such as
+`SHAURI_API_PORT=3000` and `SHAURI_PA_PORT=5173` may be set before sourcing.
+Use `shauri_help` for all commands. The helper does not install or start
+PostgreSQL/Redis daemons; it checks readiness through the API and tells you
+when required services or configuration are unavailable.
+
+If the setup check reports missing WhatsApp credentials, run
+`shauri_configure_whatsapp`; it prompts in the local terminal without echoing
+the values or sending them anywhere. Restart the API after changing settings.
+
+### PA web app
+
+`shauri_up` starts the PA development server and installs its dependencies
+from the committed lockfile if they are missing. The Vite development server
+proxies `/api/pa` to the Shauri API. Open the PA assistant, start linking, and
+send the displayed one-time `/pa-link …` command to the Shauri WhatsApp
+account you use. The link expires after 10 minutes. `shauri_up` applies
+pending database migrations before it starts any services.
+
+The production PA site should be served over HTTPS on the same origin as the
+PA API (or behind a same-site reverse proxy). Set `PA_ALLOWED_ORIGINS` to the
+exact comma-separated HTTPS browser origins. Browser sessions are stored as
+hashed tokens and use HTTP-only, same-site cookies; the browser never receives
+the shared session secret.
+
 For local development without payment credentials:
 
 ```text
@@ -73,6 +128,8 @@ When `NODE_ENV=production`, both the API and worker fail startup unless the requ
 - WhatsApp Cloud API: `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, and `WHATSAPP_VERIFY_TOKEN`
 - Optional Telegram channel: `TELEGRAM_BOT_TOKEN` and a strong `TELEGRAM_WEBHOOK_SECRET` (configure both together)
 - `INTERNAL_OPERATOR_TOKEN` with at least 32 characters
+- `PA_SESSION_SECRET` with at least 32 characters, plus `PA_ALLOWED_ORIGINS`
+  set to exact HTTPS origins
 - `OPERATOR_WHATSAPP_PHONE` unless an operator Telegram chat is configured
 
 Keep secrets in the deployment secret manager; never put live values in `.env` committed to source control, logs, images, or support tickets. Terminate HTTPS at the public ingress/load balancer and do not expose the Node port directly. The app sets HSTS in production; this assumes HTTPS is correctly enforced at the edge.
@@ -147,7 +204,14 @@ An inbound reply to an outcome follow-up is intercepted before intent routing an
 
 ## Architecture status
 
-See `docs/IMPLEMENTATION_STATUS.md` for the documentation-to-code implementation map and the remaining environment-dependent verification.
+PA is included under `apps/pa/`; only its assistant currently calls Shauri.
+The rest of PA's workspace continues to use browser-local storage and is not
+shared with the decision engine. See `docs/PA_SHAURI_INTEGRATION.md` for the
+account-linking flow, security boundary, development setup, and deployment
+requirements.
+
+See `docs/IMPLEMENTATION_STATUS.md` for the documentation-to-code
+implementation map and remaining environment-dependent verification.
 
 ## Product documentation
 

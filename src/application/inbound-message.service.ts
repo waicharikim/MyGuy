@@ -16,8 +16,7 @@
  */
 
 import { prisma } from "../infrastructure/prisma";
-
-import { processMessage } from "./message-processor";
+import { consumePaLinkMessage } from "../pa/link";
 
 type InboundMessageResult = {
   duplicate: boolean;
@@ -78,12 +77,17 @@ export async function ingestInboundMessage(
 
   if (!existing) {
     try {
+      const receiptText =
+        channel === "whatsapp" &&
+        /^\/pa-link(?:@\w+)?(?:\s|$)/i.test(input.text.trim())
+          ? "/pa-link [one-time code redacted]"
+          : input.text;
       await prisma.inboundReceipt.create({
         data: {
           channel,
           externalId: input.externalId,
           phone: input.phone,
-          text: input.text,
+          text: receiptText,
         },
       });
     } catch {
@@ -136,6 +140,29 @@ export async function ingestInboundMessage(
     });
   }
 
+  if (channel === "whatsapp") {
+    const linkResult = await consumePaLinkMessage({
+      userId: user.id,
+      text: input.text,
+    });
+    if (linkResult.handled) {
+      await prisma.inboundReceipt.update({
+        where: {
+          channel_externalId: {
+            channel,
+            externalId: input.externalId,
+          },
+        },
+        data: { processedAt: new Date() },
+      });
+      return {
+        duplicate: false,
+        reply: linkResult.reply,
+        threadId: null,
+      };
+    }
+  }
+
   /*
    * ---------------------------------------------------------------
    * 4. Application processing.
@@ -143,6 +170,7 @@ export async function ingestInboundMessage(
    */
 
   try {
+    const { processMessage } = await import("./message-processor");
     const result =
       await processMessage({
         userId: user.id,

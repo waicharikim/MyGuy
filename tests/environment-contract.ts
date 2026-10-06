@@ -17,6 +17,8 @@ const base = {
   WHATSAPP_VERIFY_TOKEN: "test",
   OPERATOR_WHATSAPP_PHONE: "254700000000",
   INTERNAL_OPERATOR_TOKEN: "a".repeat(32),
+  PA_SESSION_SECRET: "b".repeat(32),
+  PA_ALLOWED_ORIGINS: "https://pa.example.com",
   ANTHROPIC_API_KEY: "test",
   REQUIRE_PAYMENT: "false",
 };
@@ -158,6 +160,30 @@ assert(
   insecureOperatorDashboardRejected,
   "Production operator desk links must use HTTPS.",
 );
+
+let insecurePaOriginRejected = false;
+try {
+  validateProductionEnvironment({
+    ...base,
+    PA_ALLOWED_ORIGINS: "http://pa.example.com",
+  });
+} catch (error) {
+  insecurePaOriginRejected =
+    error instanceof Error && error.message.includes("PA_ALLOWED_ORIGINS");
+}
+assert(insecurePaOriginRejected, "Production PA origins must use HTTPS.");
+
+let weakPaSecretRejected = false;
+try {
+  validateProductionEnvironment({
+    ...base,
+    PA_SESSION_SECRET: "short",
+  });
+} catch (error) {
+  weakPaSecretRejected =
+    error instanceof Error && error.message.includes("PA_SESSION_SECRET");
+}
+assert(weakPaSecretRejected, "Production PA sessions must require a strong secret.");
 
 validateProductionEnvironment({
   ...base,

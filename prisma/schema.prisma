@@ -112,6 +112,8 @@ model User {
   decisionRecords     DecisionRecord[]
   agents              Agent[]
   channelIdentities   ChannelIdentity[]
+  paLinkChallenges    PaLinkChallenge[]
+  paWebSessions       PaWebSession[]
 }
 
 model ChannelIdentity {
@@ -131,6 +133,35 @@ model TelegramOperator {
   id       String   @id
   chatId   String   @unique
   linkedAt DateTime @default(now())
+}
+
+model PaLinkChallenge {
+  id                String    @id @default(uuid())
+  codeHash          String    @unique
+  browserSecretHash String    @unique
+  ipHash            String
+  userId            String?
+  user              User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  completedAt       DateTime?
+
+  @@index([ipHash, createdAt])
+  @@index([expiresAt])
+}
+
+model PaWebSession {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  @@index([userId, lastUsedAt])
+  @@index([expiresAt])
 }
 
 model UserProfile {
@@ -226,6 +257,7 @@ model InboundReceipt {
   createdAt   DateTime  @default(now())
 
   @@unique([channel, externalId])
+  @@index([channel, phone, createdAt])
 }
 
 model Message {
