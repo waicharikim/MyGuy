@@ -76,7 +76,7 @@ assert(graph.includes("awaitingHuman"), "graph.ts must track pending human input
 // Operator resume integration
 // -----------------------------------------------------------------------------
 assertContains("src/agent/human-query.ts", "runShauriGraph");
-assertContains("src/agent/human-query.ts", "sendWhatsappMessage");
+assertContains("src/agent/human-query.ts", "sendUserMessage");
 // -----------------------------------------------------------------------------
 // Controller
 // -----------------------------------------------------------------------------

@@ -94,6 +94,22 @@ async function ingestInboundMessage(input) {
             phone: input.phone,
         },
     });
+    if (channel === "whatsapp") {
+        await prisma_1.prisma.channelIdentity.upsert({
+            where: {
+                channel_externalId: {
+                    channel,
+                    externalId: input.phone,
+                },
+            },
+            update: { userId: user.id, lastUsedAt: new Date() },
+            create: {
+                userId: user.id,
+                channel,
+                externalId: input.phone,
+            },
+        });
+    }
     /*
      * ---------------------------------------------------------------
      * 4. Application processing.

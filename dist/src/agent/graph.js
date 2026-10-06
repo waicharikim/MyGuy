@@ -94,6 +94,13 @@ function requiresHumanRouting(need) {
 }
 async function routeHumanInformationNeed(state, need) {
     const source = resolveInformationSource(need);
+    const authorityHint = need.factType === "HUMAN_VERIFICATION"
+        ? "NONE"
+        : source === "EXTERNAL"
+            ? "USER"
+            : source === "USER" || source === "OPERATOR"
+                ? source
+                : "NONE";
     return (0, human_routing_1.determineHumanQuerySource)({
         matter: state.known.join("; "),
         question: need.question ||
@@ -103,10 +110,7 @@ async function routeHumanInformationNeed(state, need) {
             "Additional human information is required.",
         known: state.known,
         open: state.open,
-        authorityHint: source === "USER" ||
-            source === "OPERATOR"
-            ? source
-            : "NONE",
+        authorityHint,
     });
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +184,7 @@ async function checkpoint(state, pass) {
 // ─────────────────────────────────────────────────────────────────────────────
 // HumanQuery integration
 // ─────────────────────────────────────────────────────────────────────────────
-async function createRoutedHumanQuery(state, need, options) {
+async function createRoutedHumanQuery(state, need) {
     const routing = await routeHumanInformationNeed(state, need);
     const source = routing.source;
     const knownContext = JSON.stringify({
@@ -192,11 +196,6 @@ async function createRoutedHumanQuery(state, need, options) {
             reason: routing.reason,
             confidence: routing.confidence,
         },
-        ...(options?.fallbackFor
-            ? {
-                fallbackFor: options.fallbackFor,
-            }
-            : {}),
     });
     const q = await (0, human_query_1.createHumanQuery)({
         userId: state.userId,
@@ -637,21 +636,15 @@ If none, return [].
     // External grounding unavailable
     // ──────────────────────────────────────────────────────────────────────────
     if (!tavily) {
-        const primary = claims[0] ??
-            "the key external claim";
         const need = {
-            question: `Can you verify this for the open matter?\n\n${primary}${claims.length > 1
-                ? `\n\n(Also relevant: ${claims.slice(1, 3).join("; ")})`
-                : ""}`,
+            question: `I couldn't check reliable public sources for these details: ${claims.join("; ")}. If you have the exact organization or product name, an official link, or a document you can share, please send it. Otherwise, I can only give cautious general guidance.`,
             fact: claims.join("; "),
             factType: "EXTERNAL_FACT",
-            preferredSource: "OPERATOR",
+            preferredSource: "EXTERNAL",
             required: true,
-            reason: "External grounding is unavailable (no TAVILY_API_KEY). Operator verification required.",
+            reason: "Reliable external evidence is not available yet; request a source or identifying details from the user rather than asking an operator to verify public claims.",
         };
-        const { q, source, } = await createRoutedHumanQuery(state, need, {
-            fallbackFor: "EXTERNAL_FACT",
-        });
+        const { q, source, } = await createRoutedHumanQuery(state, need);
         await prisma_1.prisma.thread.update({
             where: {
                 id: state.threadId,
@@ -710,16 +703,14 @@ If none, return [].
     }
     if (!evidence.length) {
         const need = {
-            question: `I couldn't establish reliable external evidence for: ${claims.join("; ")}. Do you have a source or local knowledge I should consider?`,
+            question: `I couldn't verify these details from reliable public sources: ${claims.join("; ")}. Do you have an official link, a document, or the exact organization or product name I should check?`,
             fact: claims.join("; "),
             factType: "EXTERNAL_FACT",
-            preferredSource: "OPERATOR",
+            preferredSource: "EXTERNAL",
             required: true,
-            reason: "Grounding returned no usable evidence. Human input is required as a fallback.",
+            reason: "Web research returned no usable evidence; ask the user for a source or identifying details instead of assigning unsupported verification to an operator.",
         };
-        const { q, source, } = await createRoutedHumanQuery(state, need, {
-            fallbackFor: "EXTERNAL_FACT",
-        });
+        const { q, source, } = await createRoutedHumanQuery(state, need);
         await prisma_1.prisma.thread.update({
             where: {
                 id: state.threadId,

@@ -1,4 +1,6 @@
 import { prisma } from "../infrastructure/prisma";
+import { getLinkedTelegramOperator } from "../telegram/operator-link";
+import { sendTelegramMessage } from "../telegram/send";
 import { sendWhatsappMessage } from "../whatsapp/send";
 
 type WhatsappSender = (
@@ -7,9 +9,39 @@ type WhatsappSender = (
   options: { required: true },
 ) => Promise<void>;
 
+function operatorDeskLink() {
+  const configured = process.env.OPERATOR_DASHBOARD_URL?.trim();
+  if (!configured) {
+    return null;
+  }
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol !== "https:" ||
+      url.pathname.replace(/\/$/, "") !== "/internal/human/dashboard" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error();
+    }
+    return url.href;
+  } catch {
+    throw new Error(
+      "OPERATOR_DASHBOARD_URL must be an HTTPS URL ending in /internal/human/dashboard",
+    );
+  }
+}
+
 export async function deliverOperatorNotification(
   notificationId: string,
   send: WhatsappSender = sendWhatsappMessage,
+  sendTelegram: (
+    chatId: string,
+    message: string,
+  ) => Promise<unknown> = sendTelegramMessage,
+  getTelegramOperator = getLinkedTelegramOperator,
 ) {
   const notification = await prisma.operatorNotification.findUnique({
     where: { id: notificationId },
@@ -36,7 +68,7 @@ export async function deliverOperatorNotification(
     return;
   }
 
-  const message =
+  const handoff =
     notification.type === "HUMAN_QUERY" && notification.humanQuery
       ? [
           "Shauri needs an operator response.",
@@ -54,20 +86,31 @@ export async function deliverOperatorNotification(
           ].join("\n")
         : null;
 
-  if (!message) {
+  if (!handoff) {
     throw new Error(`Operator notification ${notification.id} has no valid handoff`);
   }
+  const dashboardUrl = operatorDeskLink();
+  const message = dashboardUrl
+    ? `${handoff}\nOperator Desk: ${dashboardUrl}`
+    : handoff;
 
   await prisma.operatorNotification.update({
     where: { id: notification.id },
     data: { attempts: { increment: 1 }, lastError: null },
   });
   try {
-    const operatorPhone = process.env.OPERATOR_WHATSAPP_PHONE;
-    if (!operatorPhone) {
-      throw new Error("OPERATOR_WHATSAPP_PHONE is required for operator notifications");
+    const telegramOperator = await getTelegramOperator();
+    if (telegramOperator) {
+      await sendTelegram(telegramOperator.chatId, message);
+    } else {
+      const operatorPhone = process.env.OPERATOR_WHATSAPP_PHONE;
+      if (!operatorPhone) {
+        throw new Error(
+          "No operator delivery channel is configured; pair Telegram with /operator <setup-code> or set OPERATOR_WHATSAPP_PHONE",
+        );
+      }
+      await send(operatorPhone, message, { required: true });
     }
-    await send(operatorPhone, message, { required: true });
   } catch (error) {
     await prisma.operatorNotification.update({
       where: { id: notification.id },

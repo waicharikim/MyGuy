@@ -19,8 +19,9 @@ const client_1 = require("@prisma/client");
 const human_query_1 = require("./agent/human-query");
 const operator_queue_1 = require("./agent/operator-queue");
 const decision_outcome_1 = require("./agent/decision-outcome");
-const prisma_1 = require("./infrastructure/prisma");
+const operator_escalation_1 = require("./agent/operator-escalation");
 const operator_dashboard_1 = require("./operator-dashboard");
+const MAX_OPERATOR_TEXT_LENGTH = 4000;
 let HumanController = class HumanController {
     auth(headers) {
         const expected = process.env.INTERNAL_OPERATOR_TOKEN;
@@ -72,52 +73,44 @@ let HumanController = class HumanController {
     }
     async resolve(id, body, headers) {
         this.auth(headers);
-        const answer = String(body.answer || "Resolved by operator").trim();
-        if (!answer) {
-            throw new common_1.BadRequestException("answer must not be empty");
+        if (typeof body?.answer !== "string" || !body.answer.trim()) {
+            throw new common_1.BadRequestException("answer must be a non-empty resolution note");
         }
-        return prisma_1.prisma.$transaction(async (tx) => {
-            const escalation = await tx.escalation.findUniqueOrThrow({
-                where: { id },
-            });
-            if (escalation.status !== "OPEN") {
-                throw new common_1.BadRequestException("Escalation is no longer open");
-            }
-            const resolved = await tx.escalation.update({
-                where: { id },
-                data: {
-                    status: "RESOLVED",
-                    resolvedAt: new Date(),
-                    messages: {
-                        create: {
-                            direction: "IN",
-                            content: answer,
-                        },
-                    },
-                },
-            });
-            await tx.thread.updateMany({
-                where: { id: escalation.threadId, status: "ESCALATED" },
-                data: {
-                    status: "OPEN",
-                    closedAt: null,
-                    awaitingReply: false,
-                    awaitingHuman: false,
-                    awaitingSource: "NONE",
-                },
-            });
-            await tx.decisionRecord.updateMany({
-                where: {
-                    threadId: escalation.threadId,
-                    status: "ESCALATED",
-                },
-                data: {
-                    status: "OPEN",
-                    closedAt: null,
-                },
-            });
-            return resolved;
-        });
+        if (body.answer.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+            throw new common_1.BadRequestException("answer must be 4000 characters or fewer");
+        }
+        if (body.userMessage !== undefined &&
+            (typeof body.userMessage !== "string" ||
+                !body.userMessage.trim())) {
+            throw new common_1.BadRequestException("userMessage must be a non-empty string when provided");
+        }
+        if (typeof body.userMessage === "string" &&
+            body.userMessage.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+            throw new common_1.BadRequestException("userMessage must be 4000 characters or fewer");
+        }
+        return (0, operator_escalation_1.resolveEscalation)(id, body.answer, typeof body.userMessage === "string"
+            ? body.userMessage
+            : undefined);
+    }
+    async addEscalationOperatorNote(id, body, headers) {
+        this.auth(headers);
+        if (typeof body?.note !== "string" || !body.note.trim()) {
+            throw new common_1.BadRequestException("note must be a non-empty string");
+        }
+        if (body.note.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+            throw new common_1.BadRequestException("note must be 4000 characters or fewer");
+        }
+        return (0, operator_escalation_1.addEscalationNote)(id, body.note);
+    }
+    async sendEscalationUserMessage(id, body, headers) {
+        this.auth(headers);
+        if (typeof body?.message !== "string" || !body.message.trim()) {
+            throw new common_1.BadRequestException("message must be a non-empty string");
+        }
+        if (body.message.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+            throw new common_1.BadRequestException("message must be 4000 characters or fewer");
+        }
+        return (0, operator_escalation_1.sendEscalationUpdate)(id, body.message);
     }
 };
 exports.HumanController = HumanController;
@@ -183,6 +176,26 @@ __decorate([
     __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], HumanController.prototype, "resolve", null);
+__decorate([
+    (0, common_1.Post)("escalations/:id/notes"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
+    __param(0, (0, common_1.Param)("id")),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Headers)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], HumanController.prototype, "addEscalationOperatorNote", null);
+__decorate([
+    (0, common_1.Post)("escalations/:id/message"),
+    (0, common_1.Header)("Cache-Control", "no-store"),
+    __param(0, (0, common_1.Param)("id")),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Headers)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], HumanController.prototype, "sendEscalationUserMessage", null);
 exports.HumanController = HumanController = __decorate([
     (0, common_1.Controller)("internal/human")
 ], HumanController);

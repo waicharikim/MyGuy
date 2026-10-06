@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import { prisma } from "../infrastructure/prisma";
-import { sendWhatsappMessage } from "../whatsapp/send";
-import { notifyEscalation } from "./escalation";
+import { sendUserMessage } from "../messaging/send-user-message";
+import { stopFollowupsAtLimit } from "./followup-limit";
 import { updateProfileFromThread } from "./profile";
 
 const MAX_FOLLOWUPS = Number(process.env.MAX_FOLLOWUPS || 4);
@@ -13,14 +13,13 @@ const worker = new Worker("shauri-followups", async job => {
   const thread = record.thread;
   if (thread.status !== "OPEN") { await prisma.scheduledFollowup.update({ where: { id: followupId }, data: { status: "CANCELLED" } }); return; }
   if (thread.followupCount >= MAX_FOLLOWUPS) {
-    await notifyEscalation({ threadId, userId: thread.userId, userPhone: thread.user.phone, reason: `Follow-up limit of ${MAX_FOLLOWUPS} reached without resolution.` });
-    await prisma.scheduledFollowup.update({ where: { id: followupId }, data: { status: "CANCELLED" } });
+    await stopFollowupsAtLimit(followupId, threadId);
     await updateProfileFromThread(thread.userId, threadId);
     return;
   }
   const text = `Following up on: ${record.promptContext}. How did it go? You can reply with what happened, including if you acted, it partly worked, did not work, or you decided not to proceed.`;
-  await sendWhatsappMessage(thread.user.phone, text);
-  await prisma.message.create({ data: { threadId, direction: "OUT", content: text, channel: "whatsapp" } });
+  const delivery = await sendUserMessage(thread.userId, thread.user.phone, text);
+  await prisma.message.create({ data: { threadId, direction: "OUT", content: text, channel: delivery.channel } });
   await prisma.$transaction([
     prisma.thread.update({ where: { id: threadId }, data: { awaitingReply: true, outcomeRequestedAt: new Date(), outcomeSelectionPending: false, outcomeSelectedForReply: false, currentPass: "CLOSE", followupCount: { increment: 1 } } }),
     prisma.scheduledFollowup.update({ where: { id: followupId }, data: { status: "SENT", sentAt: new Date() } }),

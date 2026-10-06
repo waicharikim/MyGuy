@@ -132,12 +132,13 @@ async function main() {
              *
              * No real WhatsApp credentials are required.
              */
-            sendWhatsappMessage: async (phone, message) => {
+            sendUserMessage: async (_userId, phone, message) => {
                 sentMessages.push({
                     phone,
                     message,
                 });
                 console.log(`✓ [FAKE WHATSAPP] ${phone}: ${message}`);
+                return { channel: "whatsapp" };
             },
             /*
              * Fake graph execution.

@@ -11,9 +11,19 @@ const common_1 = require("@nestjs/common");
 const webhook_controller_1 = require("./whatsapp/webhook.controller");
 const mpesa_callback_controller_1 = require("./payments/mpesa-callback.controller");
 const human_controller_1 = require("./human.controller");
+const health_controller_1 = require("./health.controller");
+const telegram_webhook_controller_1 = require("./telegram/telegram-webhook.controller");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
-    (0, common_1.Module)({ controllers: [webhook_controller_1.WhatsappWebhookController, mpesa_callback_controller_1.MpesaCallbackController, human_controller_1.HumanController] })
+    (0, common_1.Module)({
+        controllers: [
+            webhook_controller_1.WhatsappWebhookController,
+            mpesa_callback_controller_1.MpesaCallbackController,
+            human_controller_1.HumanController,
+            health_controller_1.HealthController,
+            telegram_webhook_controller_1.TelegramWebhookController,
+        ],
+    })
 ], AppModule);

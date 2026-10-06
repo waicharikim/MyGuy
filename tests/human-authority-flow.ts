@@ -478,7 +478,8 @@ async function main() {
       operatorQuery.id,
       "Yes. The service is currently available to residents.",
       {
-        sendWhatsappMessage: async (
+        sendUserMessage: async (
+          _userId: string,
           phone: string,
           message: string,
         ) => {
@@ -488,6 +489,7 @@ async function main() {
             phone,
             message,
           });
+          return { channel: "whatsapp" };
         },
 
         buildInjectedContext: async (

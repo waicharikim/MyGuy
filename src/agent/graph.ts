@@ -175,6 +175,14 @@ async function routeHumanInformationNeed(
 ) {
   const source =
     resolveInformationSource(need);
+  const authorityHint =
+    need.factType === "HUMAN_VERIFICATION"
+      ? "NONE"
+      : source === "EXTERNAL"
+        ? "USER"
+        : source === "USER" || source === "OPERATOR"
+          ? source
+          : "NONE";
 
   return determineHumanQuerySource({
     matter: state.known.join("; "),
@@ -192,11 +200,7 @@ async function routeHumanInformationNeed(
 
     open: state.open,
 
-    authorityHint:
-      source === "USER" ||
-      source === "OPERATOR"
-        ? source
-        : "NONE",
+    authorityHint,
   });
 }
 
@@ -381,9 +385,6 @@ async function checkpoint(
 async function createRoutedHumanQuery(
   state: ShauriState,
   need: InformationNeed,
-  options?: {
-    fallbackFor?: string;
-  },
 ) {
   const routing =
     await routeHumanInformationNeed(
@@ -414,13 +415,6 @@ async function createRoutedHumanQuery(
         confidence:
           routing.confidence,
       },
-
-      ...(options?.fallbackFor
-        ? {
-            fallbackFor:
-              options.fallbackFor,
-          }
-        : {}),
     });
 
   const q =
@@ -1244,18 +1238,12 @@ If none, return [].
   // ──────────────────────────────────────────────────────────────────────────
 
   if (!tavily) {
-    const primary =
-      claims[0] ??
-      "the key external claim";
-
     const need:
       InformationNeed = {
       question:
-        `Can you verify this for the open matter?\n\n${primary}${
-          claims.length > 1
-            ? `\n\n(Also relevant: ${claims.slice(1, 3).join("; ")})`
-            : ""
-        }`,
+        `I couldn't check reliable public sources for these details: ${claims.join(
+          "; ",
+        )}. If you have the exact organization or product name, an official link, or a document you can share, please send it. Otherwise, I can only give cautious general guidance.`,
 
       fact:
         claims.join("; "),
@@ -1264,13 +1252,13 @@ If none, return [].
         "EXTERNAL_FACT",
 
       preferredSource:
-        "OPERATOR",
+        "EXTERNAL",
 
       required:
         true,
 
       reason:
-        "External grounding is unavailable (no TAVILY_API_KEY). Operator verification required.",
+        "Reliable external evidence is not available yet; request a source or identifying details from the user rather than asking an operator to verify public claims.",
     };
 
     const {
@@ -1280,10 +1268,6 @@ If none, return [].
       await createRoutedHumanQuery(
         state,
         need,
-        {
-          fallbackFor:
-            "EXTERNAL_FACT",
-        },
       );
 
     await prisma.thread.update({
@@ -1418,9 +1402,9 @@ If none, return [].
     const need:
       InformationNeed = {
       question:
-        `I couldn't establish reliable external evidence for: ${claims.join(
+        `I couldn't verify these details from reliable public sources: ${claims.join(
           "; ",
-        )}. Do you have a source or local knowledge I should consider?`,
+        )}. Do you have an official link, a document, or the exact organization or product name I should check?`,
 
       fact:
         claims.join("; "),
@@ -1429,13 +1413,13 @@ If none, return [].
         "EXTERNAL_FACT",
 
       preferredSource:
-        "OPERATOR",
+        "EXTERNAL",
 
       required:
         true,
 
       reason:
-        "Grounding returned no usable evidence. Human input is required as a fallback.",
+        "Web research returned no usable evidence; ask the user for a source or identifying details instead of assigning unsupported verification to an operator.",
     };
 
     const {
@@ -1445,10 +1429,6 @@ If none, return [].
       await createRoutedHumanQuery(
         state,
         need,
-        {
-          fallbackFor:
-            "EXTERNAL_FACT",
-        },
       );
 
     await prisma.thread.update({

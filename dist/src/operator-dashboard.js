@@ -14,11 +14,23 @@ exports.operatorDashboardHtml = `<!doctype html>
     section,.card,.metric { background: white; border: 1px solid #dbe3dc; border-radius: 10px; padding: 16px; margin: 14px 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 10px; }
     .metric strong { display:block; font-size: 1.4rem; }
+    .metric-link { color:#175d3a; text-decoration:underline; background:transparent; padding:4px 0 0; margin:0; text-align:left; }
     .muted { color:#59665d; font-size:.92rem; }
     button { cursor:pointer; border:0; border-radius:6px; background:#175d3a; color:white; padding:9px 12px; margin:4px 6px 4px 0; }
     button.secondary { background:#47564c; }
     input,select { padding:8px; border:1px solid #aebbb0; border-radius:5px; margin:4px; }
     pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; background:#f5f7f5; padding:10px; border-radius:6px; }
+    details.transcript { margin:12px 0; border-top:1px solid #dbe3dc; padding-top:10px; }
+    details.transcript summary { cursor:pointer; font-weight:600; }
+    .transcript-message { border-left:3px solid #b9c9bd; padding:6px 10px; margin:8px 0; background:#f7f9f7; }
+    .transcript-message.in { border-color:#4274a5; }
+    .transcript-message.out { border-color:#35865a; }
+    .transcript-message.system { border-color:#aa8744; }
+    .transcript-meta { color:#59665d; font-size:.82rem; }
+    details.activity { margin:12px 0; border-top:1px solid #dbe3dc; padding-top:10px; }
+    details.activity summary { cursor:pointer; font-weight:600; }
+    .activity-entry { border-left:3px solid #b9c9bd; padding:6px 10px; margin:8px 0; background:#f7f9f7; }
+    .workflow { border-left:4px solid #175d3a; padding:8px 12px; background:#f3f8f4; }
     #message { min-height:1.4em; color:#8a321f; }
   </style>
 </head>
@@ -62,6 +74,19 @@ exports.operatorDashboardHtml = `<!doctype html>
   function addMetric(label, value) {
     const card = el("div", null, "metric");
     card.append(el("strong", value === null ? "—" : value), el("span", label, "muted"));
+    metrics.append(card);
+  }
+  function addHandoffMetric(label, value) {
+    const card = el("div", null, "metric");
+    card.append(el("strong", value), el("span", label, "muted"));
+    const link = el("button", "View operator handoffs", "metric-link");
+    link.type = "button";
+    link.onclick = () => {
+      const target = document.getElementById("queue");
+      target.scrollIntoView({behavior:"smooth",block:"start"});
+      target.focus({preventScroll:true});
+    };
+    card.append(link);
     metrics.append(card);
   }
   async function request(path, options) {
@@ -119,6 +144,56 @@ exports.operatorDashboardHtml = `<!doctype html>
     }
     return section;
   }
+  function conversationTranscript(messages) {
+    const details = el("details", null, "transcript");
+    const summary = el("summary", "Recent conversation (" + messages.length + " messages)");
+    details.append(summary);
+    if (!messages.length) {
+      details.append(el("p", "No conversation messages are recorded for this thread.", "muted"));
+      return details;
+    }
+    messages.forEach(message => {
+      const direction = String(message.direction || "SYSTEM").toLowerCase();
+      const item = el("div", null, "transcript-message " + direction);
+      const time = new Date(message.createdAt);
+      const timestamp = Number.isNaN(time.getTime()) ? "Time unavailable" : time.toLocaleString();
+      item.append(el("div", direction.toUpperCase() + " · " + (message.channel || "unknown") + " · " + timestamp, "transcript-meta"));
+      item.append(el("pre", message.content || ""));
+      details.append(item);
+    });
+    return details;
+  }
+  function escalationActivity(messages) {
+    const details = el("details", null, "activity");
+    details.append(el("summary", "Escalation work log (" + messages.length + " entries)"));
+    if (!messages.length) {
+      details.append(el("p", "No operator actions have been recorded yet.", "muted"));
+      return details;
+    }
+    messages.forEach(entry => {
+      const item = el("div", null, "activity-entry");
+      const time = new Date(entry.createdAt);
+      const timestamp = Number.isNaN(time.getTime()) ? "Time unavailable" : time.toLocaleString();
+      const label = entry.direction === "OUT"
+        ? "USER UPDATE"
+        : entry.direction === "IN"
+          ? "OPERATOR NOTE"
+          : "SYSTEM";
+      item.append(el("div", label + " · " + timestamp, "transcript-meta"));
+      item.append(el("pre", entry.content || ""));
+      details.append(item);
+    });
+    return details;
+  }
+  async function performHandoffAction(action) {
+    message.textContent = "";
+    try {
+      await action();
+      await load();
+    } catch (error) {
+      message.textContent = error instanceof Error ? error.message : "The operator action failed.";
+    }
+  }
   function renderQueue(data) {
     queue.replaceChildren();
     const entries = [
@@ -128,7 +203,7 @@ exports.operatorDashboardHtml = `<!doctype html>
     if (!entries.length) queue.append(el("p", "No open handoffs."));
     entries.forEach(({type, item}) => {
       const card = el("article", null, "card");
-      card.append(el("h3", type + " · " + item.matter));
+      card.append(el("h3", type + " · " + (item.matter || "Matter not recorded")));
       card.append(el("p", item.question || item.reason));
       card.append(el("p", item.reason || ""));
       if (item.operatorNotification) {
@@ -138,11 +213,15 @@ exports.operatorDashboardHtml = `<!doctype html>
           : "Operator alert pending (attempts: " + notification.attempts + ")" +
             (notification.lastError ? " — " + notification.lastError : "")));
       }
-      if (item.thread) card.append(decisionText(item.thread));
+      if (item.thread) {
+        card.append(decisionText(item.thread));
+        card.append(conversationTranscript(item.thread.messages || []));
+      }
       if (type === "Human query") {
+        card.append(el("p", "Only provide an answer you can verify or are authorized to give. Include how you verified it; this response is sent to the user. Do not guess.", "muted"));
         const answer = el("button", "Answer query");
         answer.onclick = async () => {
-          const value = prompt("Operator answer");
+          const value = prompt("Enter the verified answer and how you verified it. This will be sent to the user.");
           if (!value) return;
           await request("queries/" + encodeURIComponent(item.id) + "/answer", {
             method: "POST", body: JSON.stringify({answer:value})
@@ -151,15 +230,38 @@ exports.operatorDashboardHtml = `<!doctype html>
         };
         card.append(answer);
       } else {
-        const resolve = el("button", "Resolve escalation");
-        resolve.onclick = async () => {
-          const value = prompt("Resolution note");
-          if (!value) return;
-          await request("escalations/" + encodeURIComponent(item.id) + "/resolve", {
-            method: "POST", body: JSON.stringify({answer:value})
+        card.append(el("p", "Review the case and transcript, record work as you go, communicate any update to the user, then resolve only after the issue is addressed.", "workflow"));
+        card.append(escalationActivity(item.messages || []));
+        const note = el("button", "Record internal note");
+        note.className = "secondary";
+        note.onclick = () => performHandoffAction(async () => {
+          const value = prompt("Record an internal action, finding, or next step. This is not sent to the user.");
+          if (!value || !value.trim()) return;
+          await request("escalations/" + encodeURIComponent(item.id) + "/notes", {
+            method: "POST", body: JSON.stringify({note:value})
           });
-          await load();
-        };
+        });
+        card.append(note);
+        const update = el("button", "Send user update");
+        update.onclick = () => performHandoffAction(async () => {
+          const value = prompt("Write an update to send directly to the user.");
+          if (!value || !value.trim()) return;
+          await request("escalations/" + encodeURIComponent(item.id) + "/message", {
+            method: "POST", body: JSON.stringify({message:value})
+          });
+        });
+        card.append(update);
+        const resolve = el("button", "Resolve and notify user");
+        resolve.onclick = () => performHandoffAction(async () => {
+          const noteValue = prompt("Record what was done and why this escalation is resolved. This is an internal note.");
+          if (!noteValue || !noteValue.trim()) return;
+          const userMessage = prompt("Write the resolution message to send directly to the user.");
+          if (!userMessage || !userMessage.trim()) return;
+          await request("escalations/" + encodeURIComponent(item.id) + "/resolve", {
+            method: "POST",
+            body: JSON.stringify({answer:noteValue, userMessage})
+          });
+        });
         card.append(resolve);
       }
       queue.append(card);
@@ -211,7 +313,7 @@ exports.operatorDashboardHtml = `<!doctype html>
       metrics.replaceChildren();
       addMetric("Total decisions", quality.decisions.total);
       addMetric("Resolved", quality.decisions.byStatus.RESOLVED);
-      addMetric("Awaiting human", quality.decisions.byStatus.AWAITING_HUMAN);
+      addHandoffMetric("Awaiting operator", quality.handoffs.operatorQueries.OPEN);
       addMetric("Escalated", quality.decisions.byStatus.ESCALATED);
       addMetric("Resolution rate", quality.decisions.resolutionRate === null ? null : Math.round(quality.decisions.resolutionRate * 100) + "%");
       addMetric("Recommendation coverage", quality.decisions.recommendationCoverage === null ? null : Math.round(quality.decisions.recommendationCoverage * 100) + "%");

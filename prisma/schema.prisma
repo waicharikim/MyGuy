@@ -111,6 +111,26 @@ model User {
   knowledgeCandidates KnowledgeCandidate[]
   decisionRecords     DecisionRecord[]
   agents              Agent[]
+  channelIdentities   ChannelIdentity[]
+}
+
+model ChannelIdentity {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel    String
+  externalId String
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@unique([channel, externalId])
+  @@index([userId, lastUsedAt])
+}
+
+model TelegramOperator {
+  id       String   @id
+  chatId   String   @unique
+  linkedAt DateTime @default(now())
 }
 
 model UserProfile {

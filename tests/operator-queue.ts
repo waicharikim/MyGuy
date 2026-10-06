@@ -4,12 +4,19 @@ import { Queue } from "bullmq";
 import { HumanController } from "../src/human.controller";
 import { prisma } from "../src/infrastructure/prisma";
 import { createHumanQuery } from "../src/agent/human-query";
+import {
+  resolveEscalation,
+  sendEscalationUpdate,
+} from "../src/agent/operator-escalation";
 import { notifyEscalation } from "../src/agent/escalation";
 import {
   enqueuePendingOperatorNotifications,
   OPERATOR_NOTIFICATION_QUEUE,
 } from "../src/agent/operator-notification";
 import { deliverOperatorNotification } from "../src/agent/operator-notification-delivery";
+import {
+  isTelegramOperatorSetupCodeValid,
+} from "../src/telegram/operator-link";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -53,6 +60,7 @@ async function cleanup(userId: string) {
   });
   await prisma.decisionRecord.deleteMany({ where: { userId } });
   await prisma.userProfile.deleteMany({ where: { userId } });
+  await prisma.message.deleteMany({ where: { thread: { userId } } });
   await prisma.thread.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } });
 }
@@ -61,6 +69,9 @@ async function main() {
   let userId: string | undefined;
   const previousToken = process.env.INTERNAL_OPERATOR_TOKEN;
   const previousOperatorPhone = process.env.OPERATOR_WHATSAPP_PHONE;
+  const previousOperatorDashboardUrl = process.env.OPERATOR_DASHBOARD_URL;
+  const previousTelegramSetupCode = process.env.TELEGRAM_OPERATOR_SETUP_CODE;
+  const testTelegramChatId = `operator-test-${process.pid}-${Date.now()}`;
 
   try {
     const user = await prisma.user.create({
@@ -84,6 +95,24 @@ async function main() {
         open: ["The employer has not confirmed the start date."],
         decisionSummary: "Whether to accept the job offer.",
       },
+    });
+    await prisma.message.createMany({
+      data: [
+        {
+          threadId: queryThread.id,
+          direction: "IN",
+          channel: "telegram",
+          content: "I am considering this job offer.",
+          createdAt: new Date(Date.now() - 2_000),
+        },
+        {
+          threadId: queryThread.id,
+          direction: "OUT",
+          channel: "telegram",
+          content: "What matters most in your decision?",
+          createdAt: new Date(Date.now() - 1_000),
+        },
+      ],
     });
 
     await prisma.decisionRecord.create({
@@ -172,8 +201,15 @@ async function main() {
         dashboardHtml.includes('request("metrics")') &&
         dashboardHtml.includes("sessionStorage") &&
         dashboardHtml.includes("textContent") &&
-        dashboardHtml.includes("Open questions:"),
-      "Operator dashboard should render and use the authenticated APIs.",
+        dashboardHtml.includes("Open questions:") &&
+          dashboardHtml.includes("conversationTranscript") &&
+          dashboardHtml.includes("Record internal note") &&
+          dashboardHtml.includes("Send user update") &&
+          dashboardHtml.includes("Resolve and notify user") &&
+          dashboardHtml.includes("Awaiting operator") &&
+          dashboardHtml.includes("quality.handoffs.operatorQueries.OPEN") &&
+          dashboardHtml.includes("View operator handoffs"),
+        "Operator dashboard should render and use the authenticated APIs.",
     );
 
     process.env.INTERNAL_OPERATOR_TOKEN = "operator-queue-test-token";
@@ -203,11 +239,23 @@ async function main() {
     );
     assert(humanQuery, "The test operator query must be present.");
     assert(
+      humanQuery.thread.messages.length === 2 &&
+        humanQuery.thread.messages[0].direction === "IN" &&
+        humanQuery.thread.messages[0].content ===
+          "I am considering this job offer." &&
+        humanQuery.thread.messages[1].direction === "OUT" &&
+        humanQuery.thread.messages[1].content ===
+          "What matters most in your decision?",
+      "The operator queue should provide recent conversation messages in chronological order.",
+    );
+    assert(
       humanQuery.operatorNotification !== null &&
         humanQuery.operatorNotification.sentAt === null,
       "Operator human queries should have durable pending WhatsApp notifications.",
     );
     process.env.OPERATOR_WHATSAPP_PHONE = "+254700000000";
+    process.env.OPERATOR_DASHBOARD_URL =
+      "https://shauri.example.com/internal/human/dashboard";
     const notificationId = humanQuery.operatorNotification.id;
     const recoveryQueue = new Queue(OPERATOR_NOTIFICATION_QUEUE, {
       connection: {
@@ -216,6 +264,15 @@ async function main() {
       },
     });
     try {
+      await prisma.operatorNotification.update({
+        where: { id: notificationId },
+        data: {
+          sentAt: null,
+          attempts: 0,
+          nextAttemptAt: new Date(0),
+          lastError: null,
+        },
+      });
       await (await recoveryQueue.getJob(notificationId))?.remove();
       await enqueuePendingOperatorNotifications();
       const recoveredJob = await recoveryQueue.getJob(notificationId);
@@ -228,9 +285,14 @@ async function main() {
     }
     let failedDelivery = false;
     try {
-      await deliverOperatorNotification(notificationId, async () => {
-        throw new Error("temporary delivery failure");
-      });
+      await deliverOperatorNotification(
+        notificationId,
+        async () => {
+          throw new Error("temporary delivery failure");
+        },
+        undefined,
+        async () => null,
+      );
     } catch {
       failedDelivery = true;
     }
@@ -242,18 +304,24 @@ async function main() {
       failedNotification.attempts === 1 &&
         failedNotification.lastError?.includes("temporary delivery failure") === true &&
         failedNotification.nextAttemptAt > new Date(),
-      "Failed notification attempts and retry time must persist.",
+      `Failed notification attempts and retry time must persist (attempts=${failedNotification.attempts}, error=${failedNotification.lastError}, next=${failedNotification.nextAttemptAt.toISOString()}).`,
     );
     let deliveredPhone = "";
     let deliveredMessage = "";
-    await deliverOperatorNotification(notificationId, async (phone, message) => {
-      deliveredPhone = phone;
-      deliveredMessage = message;
-    });
+    await deliverOperatorNotification(
+      notificationId,
+      async (phone, message) => {
+        deliveredPhone = phone;
+        deliveredMessage = message;
+      },
+      undefined,
+      async () => null,
+    );
     assert(
       deliveredPhone === process.env.OPERATOR_WHATSAPP_PHONE &&
-        deliveredMessage.includes("confirm the start date"),
-      "The retry must send the operator the human-query handoff.",
+        deliveredMessage.includes("confirm the start date") &&
+        deliveredMessage.includes(process.env.OPERATOR_DASHBOARD_URL),
+      "The retry must include the human-query handoff and Operator Desk link.",
     );
     const deliveredNotification = await prisma.operatorNotification.findUniqueOrThrow({
       where: { id: notificationId },
@@ -265,9 +333,14 @@ async function main() {
       "Successful delivery must be durably recorded and stop retries.",
     );
     let duplicateSendAttempted = false;
-    await deliverOperatorNotification(notificationId, async () => {
-      duplicateSendAttempted = true;
-    });
+    await deliverOperatorNotification(
+      notificationId,
+      async () => {
+        duplicateSendAttempted = true;
+      },
+      undefined,
+      async () => null,
+    );
     assert(!duplicateSendAttempted, "A sent notification must not be sent again.");
     assert(humanQuery.question.includes("confirm the start date"), "Question should be present.");
     assert(humanQuery.reason.includes("controlled by the employer"), "Handoff reason should be present.");
@@ -284,6 +357,10 @@ async function main() {
     );
     assert(queuedEscalation, "The test escalation must be present.");
     assert(queuedEscalation.id === escalation.id, "Escalation should be idempotent for an open thread.");
+    assert(
+      queuedEscalation.matter === "Resolve the reported service problem.",
+      "Escalations should include their decision matter for the dashboard title.",
+    );
     assert(queuedEscalation.reason.includes("account-level access"), "Escalation reason should be included.");
     assert(queuedEscalation.thread.decisionRecords[0].status === "ESCALATED", "Escalation decision record should be included.");
     assert(
@@ -291,13 +368,122 @@ async function main() {
         queuedEscalation.operatorNotification.sentAt === null,
       "Escalations should have durable pending WhatsApp notifications.",
     );
+    const setupCode = "test-telegram-operator-setup-code-32chars";
+    process.env.TELEGRAM_OPERATOR_SETUP_CODE = setupCode;
+    assert(
+      isTelegramOperatorSetupCodeValid(setupCode) &&
+        !isTelegramOperatorSetupCodeValid("wrong-setup-code"),
+      "Telegram operator pairing must verify the setup code.",
+    );
+    let telegramRecipient = "";
+    let telegramMessage = "";
+    await deliverOperatorNotification(
+      queuedEscalation.operatorNotification.id,
+      async () => {
+        throw new Error("WhatsApp should not be selected when Telegram is paired");
+      },
+      async (chatId, message) => {
+        telegramRecipient = chatId;
+        telegramMessage = message;
+      },
+      async () => ({ id: "primary", chatId: testTelegramChatId, linkedAt: new Date() }),
+    );
+    assert(
+      telegramRecipient === testTelegramChatId &&
+        telegramMessage.includes("account-level access"),
+      "Operator escalation notifications should be delivered to the paired Telegram chat.",
+    );
 
-    const resolvedEscalation = await controller.resolve(
+    const userMessages: string[] = [];
+    const testSenders = {
+      whatsapp: async (_phone: string, message: string) => {
+        userMessages.push(message);
+      },
+      telegram: async (_chatId: string, message: string) => {
+        userMessages.push(message);
+      },
+    };
+    let updateFailureSurfaced = false;
+    try {
+      await sendEscalationUpdate(
+        escalation.id,
+        "This update should fail.",
+        {
+          whatsapp: async () => {
+            throw new Error("test delivery failure");
+          },
+          telegram: async () => {
+            throw new Error("test delivery failure");
+          },
+        },
+      );
+    } catch (error) {
+      updateFailureSurfaced =
+        error instanceof Error &&
+        error.message === "test delivery failure";
+    }
+    const afterFailedUpdate = await prisma.escalation.findUniqueOrThrow({
+      where: { id: escalation.id },
+      include: { messages: true },
+    });
+    assert(
+      updateFailureSurfaced &&
+        afterFailedUpdate.status === "OPEN" &&
+        !afterFailedUpdate.messages.some(
+          (entry) => entry.content === "This update should fail.",
+        ),
+      "A failed user delivery must be surfaced without falsely recording or resolving the escalation.",
+    );
+
+    await sendEscalationUpdate(
       escalation.id,
-      { answer: "The account has been restored." },
-      { "x-operator-token": "operator-queue-test-token" },
+      "We are investigating your account issue.",
+      testSenders,
+    );
+    const queueWithActivity = await controller.queue({
+      "x-operator-token": "operator-queue-test-token",
+    });
+    const escalationWithActivity = queueWithActivity.escalations.find(
+      (item) => item.id === escalation.id,
+    );
+    assert(
+      userMessages[0] === "We are investigating your account issue." &&
+        escalationWithActivity?.messages.some(
+          (message) =>
+            message.direction === "OUT" &&
+            message.content === "We are investigating your account issue.",
+        ),
+      "Operator updates should be sent to the user and recorded in the escalation work log.",
+    );
+
+    const resolvedEscalation = await resolveEscalation(
+      escalation.id,
+      "Restored access after correcting the account setting.",
+      "Your account access has been restored. Please try again and let us know if you still have trouble.",
+      testSenders,
     );
     assert(resolvedEscalation.status === "RESOLVED", "Operator resolution must close the escalation.");
+    assert(
+      userMessages[1]?.includes("access has been restored"),
+      "Resolution should send the operator's user-facing message.",
+    );
+    const escalationLog = await prisma.escalationMessage.findMany({
+      where: { escalationId: escalation.id },
+      orderBy: { createdAt: "asc" },
+    });
+    assert(
+      escalationLog.some(
+        (entry) =>
+          entry.direction === "IN" &&
+          entry.content === "Restored access after correcting the account setting.",
+      ) &&
+        escalationLog.some(
+          (entry) =>
+            entry.direction === "OUT" &&
+            entry.content.includes("Your account access has been restored."),
+        ),
+      "The resolution note and user message should both be recorded in the case activity.",
+    );
     const reopenedThread = await prisma.thread.findUniqueOrThrow({
       where: { id: escalationThread.id },
     });
@@ -314,10 +500,9 @@ async function main() {
     );
     let duplicateResolveRejected = false;
     try {
-      await controller.resolve(
+      await resolveEscalation(
         escalation.id,
-        { answer: "Duplicate resolution" },
-        { "x-operator-token": "operator-queue-test-token" },
+        "Duplicate resolution",
       );
     } catch {
       duplicateResolveRejected = true;
@@ -329,6 +514,14 @@ async function main() {
     console.log("✓ evidence provenance appears in the handoff summary");
     console.log("✓ open escalations include their decision summary");
   } finally {
+    await prisma.telegramOperator.deleteMany({
+      where: { id: "primary", chatId: testTelegramChatId },
+    });
+    if (previousTelegramSetupCode === undefined) {
+      delete process.env.TELEGRAM_OPERATOR_SETUP_CODE;
+    } else {
+      process.env.TELEGRAM_OPERATOR_SETUP_CODE = previousTelegramSetupCode;
+    }
     if (previousToken === undefined) {
       delete process.env.INTERNAL_OPERATOR_TOKEN;
     } else {
@@ -338,6 +531,11 @@ async function main() {
       delete process.env.OPERATOR_WHATSAPP_PHONE;
     } else {
       process.env.OPERATOR_WHATSAPP_PHONE = previousOperatorPhone;
+    }
+    if (previousOperatorDashboardUrl === undefined) {
+      delete process.env.OPERATOR_DASHBOARD_URL;
+    } else {
+      process.env.OPERATOR_DASHBOARD_URL = previousOperatorDashboardUrl;
     }
     if (userId) {
       await cleanup(userId);

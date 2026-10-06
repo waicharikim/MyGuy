@@ -190,7 +190,8 @@ async function main() {
        *
        * No real WhatsApp credentials are required.
        */
-      sendWhatsappMessage: async (
+      sendUserMessage: async (
+        _userId,
         phone,
         message,
       ) => {
@@ -202,6 +203,7 @@ async function main() {
         console.log(
           `✓ [FAKE WHATSAPP] ${phone}: ${message}`,
         );
+        return { channel: "whatsapp" };
       },
 
       /*

@@ -4,6 +4,7 @@ exports.OPERATOR_NOTIFICATION_QUEUE = void 0;
 exports.notifyOperatorOfHumanQuery = notifyOperatorOfHumanQuery;
 exports.notifyOperatorOfEscalation = notifyOperatorOfEscalation;
 exports.enqueuePendingOperatorNotifications = enqueuePendingOperatorNotifications;
+exports.retryPendingOperatorNotifications = retryPendingOperatorNotifications;
 const client_1 = require("@prisma/client");
 const bullmq_1 = require("bullmq");
 const prisma_1 = require("../infrastructure/prisma");
@@ -94,4 +95,14 @@ async function enqueuePendingOperatorNotifications() {
         orderBy: { createdAt: "asc" },
     });
     await enqueueMany(pending.map(({ id }) => id));
+}
+async function retryPendingOperatorNotifications() {
+    await prisma_1.prisma.operatorNotification.updateMany({
+        where: {
+            sentAt: null,
+            lastError: { not: null },
+        },
+        data: { nextAttemptAt: new Date() },
+    });
+    await enqueuePendingOperatorNotifications();
 }

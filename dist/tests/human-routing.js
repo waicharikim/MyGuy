@@ -180,6 +180,31 @@ async function main() {
     console.log("✓ Reason passed to router");
     console.log("✓ Known facts passed to router");
     console.log("✓ Open facts passed to router");
+    let routingInstructions = "";
+    const privateThirdPartyFactModel = {
+        async invoke(messages) {
+            routingInstructions = messages[0]?.content ?? "";
+            return {
+                content: JSON.stringify({
+                    source: "USER",
+                    reason: "The user must obtain or share their private offer details.",
+                    confidence: 0.95,
+                }),
+            };
+        },
+    };
+    const privateThirdPartyFact = await (0, human_routing_1.determineHumanQuerySource)({
+        matter: "Whether to accept a job offer",
+        question: "Can the employer confirm the start date?",
+        reason: "The offer's start date is controlled by the employer.",
+        known: ["The user has received a job offer."],
+        open: ["The start date is unconfirmed."],
+        authorityHint: "NONE",
+    }, privateThirdPartyFactModel);
+    assert(privateThirdPartyFact.source === client_1.HumanQuerySource.USER, "Private third-party facts should be routed to the user to obtain, not assumed to be an operator task.");
+    assert(routingInstructions.includes("Do not assume the operator can contact or act for an unrelated employer"), "Router instructions must distinguish an external employer from an authorized Shauri operator.");
+    console.log("✓ Private employer-controlled facts are routed to the user");
+    console.log("✓ Operator routing requires explicit service authority or access");
     // ──────────────────────────────────────────────────────────────────────────
     // Complete
     // ──────────────────────────────────────────────────────────────────────────

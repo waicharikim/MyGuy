@@ -18,8 +18,15 @@ import {
   getDecisionQualityMetrics,
   listUnclassifiedDecisionOutcomes,
 } from "./agent/decision-outcome";
+import {
+  addEscalationNote,
+  resolveEscalation,
+  sendEscalationUpdate,
+} from "./agent/operator-escalation";
 import { prisma } from "./infrastructure/prisma";
 import { operatorDashboardHtml } from "./operator-dashboard";
+
+const MAX_OPERATOR_TEXT_LENGTH = 4000;
 
 @Controller("internal/human")
 export class HumanController {
@@ -123,57 +130,72 @@ export class HumanController {
   @Header("Cache-Control", "no-store")
   async resolve(
     @Param("id") id: string,
-    @Body() body: { answer?: string },
+    @Body() body: {
+      answer?: unknown;
+      userMessage?: unknown;
+    },
     @Headers() headers: Record<string, string | undefined>
   ) {
     this.auth(headers);
-    const answer = String(body.answer || "Resolved by operator").trim();
-    if (!answer) {
-      throw new BadRequestException("answer must not be empty");
+    if (typeof body?.answer !== "string" || !body.answer.trim()) {
+      throw new BadRequestException("answer must be a non-empty resolution note");
     }
+    if (body.answer.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+      throw new BadRequestException("answer must be 4000 characters or fewer");
+    }
+    if (
+      body.userMessage !== undefined &&
+      (typeof body.userMessage !== "string" ||
+        !body.userMessage.trim())
+    ) {
+      throw new BadRequestException("userMessage must be a non-empty string when provided");
+    }
+    if (
+      typeof body.userMessage === "string" &&
+      body.userMessage.trim().length > MAX_OPERATOR_TEXT_LENGTH
+    ) {
+      throw new BadRequestException("userMessage must be 4000 characters or fewer");
+    }
+    return resolveEscalation(
+      id,
+      body.answer,
+      typeof body.userMessage === "string"
+        ? body.userMessage
+        : undefined,
+    );
+  }
 
-    return prisma.$transaction(async (tx) => {
-      const escalation = await tx.escalation.findUniqueOrThrow({
-        where: { id },
-      });
-      if (escalation.status !== "OPEN") {
-        throw new BadRequestException("Escalation is no longer open");
-      }
+  @Post("escalations/:id/notes")
+  @Header("Cache-Control", "no-store")
+  async addEscalationOperatorNote(
+    @Param("id") id: string,
+    @Body() body: { note?: unknown },
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    this.auth(headers);
+    if (typeof body?.note !== "string" || !body.note.trim()) {
+      throw new BadRequestException("note must be a non-empty string");
+    }
+    if (body.note.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+      throw new BadRequestException("note must be 4000 characters or fewer");
+    }
+    return addEscalationNote(id, body.note);
+  }
 
-      const resolved = await tx.escalation.update({
-        where: { id },
-        data: {
-          status: "RESOLVED",
-          resolvedAt: new Date(),
-          messages: {
-            create: {
-              direction: "IN",
-              content: answer,
-            },
-          },
-        },
-      });
-      await tx.thread.updateMany({
-        where: { id: escalation.threadId, status: "ESCALATED" },
-        data: {
-          status: "OPEN",
-          closedAt: null,
-          awaitingReply: false,
-          awaitingHuman: false,
-          awaitingSource: "NONE",
-        },
-      });
-      await tx.decisionRecord.updateMany({
-        where: {
-          threadId: escalation.threadId,
-          status: "ESCALATED",
-        },
-        data: {
-          status: "OPEN",
-          closedAt: null,
-        },
-      });
-      return resolved;
-    });
+  @Post("escalations/:id/message")
+  @Header("Cache-Control", "no-store")
+  async sendEscalationUserMessage(
+    @Param("id") id: string,
+    @Body() body: { message?: unknown },
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    this.auth(headers);
+    if (typeof body?.message !== "string" || !body.message.trim()) {
+      throw new BadRequestException("message must be a non-empty string");
+    }
+    if (body.message.trim().length > MAX_OPERATOR_TEXT_LENGTH) {
+      throw new BadRequestException("message must be 4000 characters or fewer");
+    }
+    return sendEscalationUpdate(id, body.message);
   }
 }

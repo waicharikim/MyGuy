@@ -77,8 +77,106 @@ catch (error) {
         error instanceof Error && error.message.includes("MPESA_CONSUMER_KEY");
 }
 assert(paymentFieldsRequired, "Enabled production payments must require all Daraja configuration.");
+let partialTelegramConfigRejected = false;
+try {
+    (0, environment_1.validateProductionEnvironment)({
+        ...base,
+        TELEGRAM_BOT_TOKEN: "test",
+    });
+}
+catch (error) {
+    partialTelegramConfigRejected =
+        error instanceof Error &&
+            error.message.includes("must be configured together");
+}
+assert(partialTelegramConfigRejected, "Production must reject partial Telegram configuration.");
+let weakTelegramSecretRejected = false;
+try {
+    (0, environment_1.validateProductionEnvironment)({
+        ...base,
+        TELEGRAM_BOT_TOKEN: "test",
+        TELEGRAM_WEBHOOK_SECRET: "short",
+        TELEGRAM_WEBHOOK_URL: "https://example.test/webhook/telegram",
+    });
+}
+catch (error) {
+    weakTelegramSecretRejected =
+        error instanceof Error &&
+            error.message.includes("TELEGRAM_WEBHOOK_SECRET");
+}
+assert(weakTelegramSecretRejected, "Production Telegram webhooks must require a strong secret.");
+let missingTelegramUrlRejected = false;
+try {
+    (0, environment_1.validateProductionEnvironment)({
+        ...base,
+        TELEGRAM_BOT_TOKEN: "test",
+        TELEGRAM_WEBHOOK_SECRET: "a".repeat(32),
+    });
+}
+catch (error) {
+    missingTelegramUrlRejected =
+        error instanceof Error &&
+            error.message.includes("TELEGRAM_WEBHOOK_URL");
+}
+assert(missingTelegramUrlRejected, "Production Telegram must require the hosted HTTPS webhook URL.");
+let insecureTelegramUrlRejected = false;
+try {
+    (0, environment_1.validateProductionEnvironment)({
+        ...base,
+        TELEGRAM_BOT_TOKEN: "test",
+        TELEGRAM_WEBHOOK_SECRET: "a".repeat(32),
+        TELEGRAM_WEBHOOK_URL: "http://example.test/webhook/telegram",
+    });
+}
+catch (error) {
+    insecureTelegramUrlRejected =
+        error instanceof Error &&
+            error.message.includes("TELEGRAM_WEBHOOK_URL");
+}
+assert(insecureTelegramUrlRejected, "Production Telegram webhook URLs must use HTTPS.");
+(0, environment_1.validateProductionEnvironment)({
+    ...base,
+    TELEGRAM_BOT_TOKEN: "test",
+    TELEGRAM_WEBHOOK_SECRET: "a".repeat(32),
+    TELEGRAM_WEBHOOK_URL: "https://shauri.example.com/webhook/telegram",
+});
+let insecureOperatorDashboardRejected = false;
+try {
+    (0, environment_1.validateProductionEnvironment)({
+        ...base,
+        OPERATOR_DASHBOARD_URL: "http://shauri.example.com/internal/human/dashboard",
+    });
+}
+catch (error) {
+    insecureOperatorDashboardRejected =
+        error instanceof Error &&
+            error.message.includes("OPERATOR_DASHBOARD_URL");
+}
+assert(insecureOperatorDashboardRejected, "Production operator desk links must use HTTPS.");
+(0, environment_1.validateProductionEnvironment)({
+    ...base,
+    OPERATOR_WHATSAPP_PHONE: undefined,
+    TELEGRAM_BOT_TOKEN: "test",
+    TELEGRAM_WEBHOOK_SECRET: "a".repeat(32),
+    TELEGRAM_WEBHOOK_URL: "https://shauri.example.com/webhook/telegram",
+    TELEGRAM_OPERATOR_SETUP_CODE: "a".repeat(32),
+});
+let missingOperatorChannelRejected = false;
+try {
+    (0, environment_1.validateProductionEnvironment)({
+        ...base,
+        OPERATOR_WHATSAPP_PHONE: undefined,
+    });
+}
+catch (error) {
+    missingOperatorChannelRejected =
+        error instanceof Error &&
+            error.message.includes("OPERATOR_WHATSAPP_PHONE or Telegram operator setup");
+}
+assert(missingOperatorChannelRejected, "Production must require a configured operator notification channel.");
 (0, environment_1.validateProductionEnvironment)({ NODE_ENV: "development" });
 console.log("✓ production requires integration configuration and a strong operator token");
 console.log("✓ live production payment mode cannot use Daraja sandbox");
+console.log("✓ optional Telegram production configuration must be complete and use a strong secret");
 console.log("✓ non-production development configuration remains optional");
 console.log("ENVIRONMENT CONTRACT TEST PASSED");

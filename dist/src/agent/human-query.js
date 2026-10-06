@@ -282,9 +282,9 @@ async function answerHumanQuery(id, answer) {
 async function getOperatorResumeDependencies() {
     const { runShauriGraph } = await Promise.resolve().then(() => __importStar(require("./graph")));
     const { buildInjectedContext } = await Promise.resolve().then(() => __importStar(require("./context")));
-    const { sendWhatsappMessage } = await Promise.resolve().then(() => __importStar(require("../whatsapp/send")));
+    const { sendUserMessage } = await Promise.resolve().then(() => __importStar(require("../messaging/send-user-message")));
     return {
-        sendWhatsappMessage,
+        sendUserMessage,
         runShauriGraph,
         buildInjectedContext,
     };
@@ -331,7 +331,7 @@ async function resumeHumanQueryFromOperator(id, answer, injectedDependencies) {
      *
      * Tell the user that the operator has answered.
      */
-    await dependencies.sendWhatsappMessage(user.phone, answer);
+    const answerDelivery = await dependencies.sendUserMessage(user.id, user.phone, answer);
     /*
      * Persist the operator answer as an outbound user-visible message.
      */
@@ -340,7 +340,7 @@ async function resumeHumanQueryFromOperator(id, answer, injectedDependencies) {
             threadId: q.threadId,
             direction: "OUT",
             content: answer,
-            channel: "whatsapp",
+            channel: answerDelivery.channel,
             metadata: {
                 source: "human_operator",
                 humanQueryId: q.id,
@@ -373,12 +373,13 @@ async function resumeHumanQueryFromOperator(id, answer, injectedDependencies) {
      *
      * Persist Shauri's response.
      */
+    const replyDelivery = await dependencies.sendUserMessage(user.id, user.phone, result.reply);
     await prisma_1.prisma.message.create({
         data: {
             threadId: q.threadId,
             direction: "OUT",
             content: result.reply,
-            channel: "whatsapp",
+            channel: replyDelivery.channel,
             metadata: {
                 source: "shauri_resume",
                 humanQueryId: q.id,
@@ -390,7 +391,6 @@ async function resumeHumanQueryFromOperator(id, answer, injectedDependencies) {
      *
      * Deliver Shauri's response to the user.
      */
-    await dependencies.sendWhatsappMessage(user.phone, result.reply);
     return {
         query: q,
         reply: result.reply,

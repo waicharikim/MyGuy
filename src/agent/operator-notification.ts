@@ -105,4 +105,15 @@ export async function enqueuePendingOperatorNotifications() {
   await enqueueMany(pending.map(({ id }) => id));
 }
 
+export async function retryPendingOperatorNotifications() {
+  await prisma.operatorNotification.updateMany({
+    where: {
+      sentAt: null,
+      lastError: { not: null },
+    },
+    data: { nextAttemptAt: new Date() },
+  });
+  await enqueuePendingOperatorNotifications();
+}
+
 export { QUEUE_NAME as OPERATOR_NOTIFICATION_QUEUE };

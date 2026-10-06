@@ -50,6 +50,16 @@ const operatorThreadSelect = {
             confidence: true,
         },
     },
+    messages: {
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+            direction: true,
+            channel: true,
+            content: true,
+            createdAt: true,
+        },
+    },
 };
 async function getOperatorQueue() {
     const [queries, escalations] = await Promise.all([
@@ -74,6 +84,14 @@ async function getOperatorQueue() {
                     select: { id: true, attempts: true, lastError: true, sentAt: true },
                 },
                 thread: { select: operatorThreadSelect },
+                messages: {
+                    orderBy: { createdAt: "asc" },
+                    select: {
+                        direction: true,
+                        content: true,
+                        createdAt: true,
+                    },
+                },
                 user: {
                     select: {
                         phone: true,
@@ -101,15 +119,25 @@ async function getOperatorQueue() {
             source: query.source,
             status: query.status,
             operatorNotification: query.operatorNotification,
-            thread: query.thread,
+            thread: {
+                ...query.thread,
+                messages: [...query.thread.messages].reverse(),
+            },
         })),
         escalations: escalations.map((escalation) => ({
             id: escalation.id,
             createdAt: escalation.createdAt,
+            matter: escalation.thread.decisionRecords[0]?.matter ||
+                escalation.thread.decisionSummary ||
+                escalation.thread.id,
             reason: escalation.reason,
             operatorNotification: escalation.operatorNotification,
+            messages: escalation.messages,
             user: escalation.user,
-            thread: escalation.thread,
+            thread: {
+                ...escalation.thread,
+                messages: [...escalation.thread.messages].reverse(),
+            },
         })),
     };
 }

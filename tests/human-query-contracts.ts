@@ -147,7 +147,7 @@ assertContains(
 
 assertContains(
   "src/agent/human-query.ts",
-  "sendWhatsappMessage"
+  "sendUserMessage"
 );
 
 // -----------------------------------------------------------------------------

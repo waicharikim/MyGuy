@@ -237,14 +237,12 @@ function resolveAuthorityHint(
  * - feelings
  *
  * OPERATOR:
- * - organisation-specific information
- * - local operational knowledge
- * - community-specific knowledge
- * - service availability
- * - procedures
- * - requirements controlled by an organisation
- * - information requiring responsible human verification
- * - information requiring human intervention
+ * - organisation-specific information or service availability
+ * - procedures and requirements controlled by Shauri's organisation
+ * - information requiring authorized operator access or intervention
+ *
+ * Private details held by an unrelated third party should normally be
+ * obtained or documented by the user, not assigned to an operator.
  */
 export async function determineHumanQuerySource(
   input: HumanQueryRoutingInput,
@@ -306,11 +304,15 @@ Examples:
 - what the user intends to do
 - how the user feels
 - information only the user can know about themselves
+- private information held by a third party, such as the start date on
+  the user's job offer; ask the user to provide the document or obtain
+  confirmation from that third party
 
 OPERATOR
 
-Use OPERATOR when the missing information requires knowledge that the
-user should not be expected to possess or provide.
+Use OPERATOR only when Shauri's authorized operator can reasonably
+provide the information or take the required action using organizational
+knowledge, approved systems, or authority explicitly available to them.
 
 Examples:
 
@@ -331,13 +333,19 @@ Do not choose OPERATOR merely because information is uncertain.
 If the user can reasonably answer the question about themselves,
 choose USER.
 
-If the answer requires an external human authority, choose OPERATOR.
+Do not assume the operator can contact or act for an unrelated employer,
+landlord, regulator, seller, or other third party. For private details
+controlled by such a party, choose USER and ask the user to provide
+written evidence or obtain confirmation. Choose OPERATOR only when the
+operator has explicit authority, direct system access, or a defined
+service responsibility for the task.
 
 The user's inability to know something does not automatically mean
-OPERATOR. The key question is:
+OPERATOR. The key question is whether Shauri's operator has legitimate
+authority and practical access to resolve it:
 
-"Who has legitimate authority or first-hand knowledge to provide this
-information?"
+"Can an authorized Shauri operator actually provide this information or
+perform this action?"
 
 Return ONLY valid JSON:
 

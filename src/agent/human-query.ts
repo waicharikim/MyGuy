@@ -90,10 +90,11 @@ export type CreateHumanQueryInput = {
  * - external services
  */
 export type OperatorResumeDependencies = {
-  sendWhatsappMessage: (
+  sendUserMessage: (
+    userId: string,
     phone: string,
     message: string,
-  ) => Promise<unknown>;
+  ) => Promise<{ channel: string }>;
 
   runShauriGraph: (input: {
     threadId: string;
@@ -345,10 +346,10 @@ async function getOperatorResumeDependencies(): Promise<
 > {
   const { runShauriGraph } = await import("./graph");
   const { buildInjectedContext } = await import("./context");
-  const { sendWhatsappMessage } = await import("../whatsapp/send");
+  const { sendUserMessage } = await import("../messaging/send-user-message");
 
   return {
-    sendWhatsappMessage,
+    sendUserMessage,
     runShauriGraph,
     buildInjectedContext,
   };
@@ -404,7 +405,8 @@ export async function resumeHumanQueryFromOperator(
    *
    * Tell the user that the operator has answered.
    */
-  await dependencies.sendWhatsappMessage(
+  const answerDelivery = await dependencies.sendUserMessage(
+    user.id,
     user.phone,
     answer,
   );
@@ -417,7 +419,7 @@ export async function resumeHumanQueryFromOperator(
       threadId: q.threadId,
       direction: "OUT",
       content: answer,
-      channel: "whatsapp",
+      channel: answerDelivery.channel,
       metadata: {
         source: "human_operator",
         humanQueryId: q.id,
@@ -458,12 +460,18 @@ export async function resumeHumanQueryFromOperator(
    *
    * Persist Shauri's response.
    */
+  const replyDelivery = await dependencies.sendUserMessage(
+    user.id,
+    user.phone,
+    result.reply,
+  );
+
   await prisma.message.create({
     data: {
       threadId: q.threadId,
       direction: "OUT",
       content: result.reply,
-      channel: "whatsapp",
+      channel: replyDelivery.channel,
       metadata: {
         source: "shauri_resume",
         humanQueryId: q.id,
@@ -476,11 +484,6 @@ export async function resumeHumanQueryFromOperator(
    *
    * Deliver Shauri's response to the user.
    */
-  await dependencies.sendWhatsappMessage(
-    user.phone,
-    result.reply,
-  );
-
   return {
     query: q,
     reply: result.reply,

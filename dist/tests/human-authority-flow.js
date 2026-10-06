@@ -324,12 +324,13 @@ async function main() {
         let contextCalled = false;
         const sentMessages = [];
         const result = await (0, human_query_1.resumeHumanQueryFromOperator)(operatorQuery.id, "Yes. The service is currently available to residents.", {
-            sendWhatsappMessage: async (phone, message) => {
+            sendUserMessage: async (_userId, phone, message) => {
                 whatsappCalls += 1;
                 sentMessages.push({
                     phone,
                     message,
                 });
+                return { channel: "whatsapp" };
             },
             buildInjectedContext: async (_userId, input) => {
                 contextCalled = true;
